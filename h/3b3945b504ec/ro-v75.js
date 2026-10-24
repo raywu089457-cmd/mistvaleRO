@@ -5,7 +5,7 @@
 //   ・只比對 index.html（新增或移除腳本時會變）與 ro-content.js（每次改版都會更新更新日誌）
 //   ・每 10 分鐘一次；分頁在背景時不檢查，切回分頁時才檢查（兩次檢查至少間隔 1 分鐘）
 // 每個分頁每小時約 12 個請求。偵測到新版後的倒數、戰鬥中延後、存檔重整都維持原本的做法。
-const V75_UPD = { every: 600, gap: 60, files: ["index.html", "ro-content.js"] };
+const V75_UPD = { every: 600, gap: 60, files: [] }; // 本機/Pages 版：快照不檢查更新，避免無謂請求
 const v75Upd = { last: 0 };
 function v75UpdInstall() {
   if (typeof V64_UPD !== "undefined") V64_UPD.every = V75_UPD.every;
