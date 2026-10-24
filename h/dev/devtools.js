@@ -294,6 +294,31 @@
     try { S.hp = PS.maxhp; } catch (e) {}
   }, 200);
 
+
+  // ---------- 保險：空的教學/說明背板會擋住所有點擊 ----------
+  (function sheetGuard() {
+    let stuckSince = 0;
+    setInterval(() => {
+      try {
+        const bg = document.querySelector('#sheetBg');
+        const sh = document.querySelector('#sheet');
+        if (!bg || !sh) return;
+        const bgVisible = getComputedStyle(bg).display !== 'none';
+        const txt = (sh.innerText || '').trim();
+        const empty = sh.getBoundingClientRect().height < 8 || txt.length < 2;
+        if (bgVisible && empty) {
+          if (!stuckSince) stuckSince = Date.now();
+          else if (Date.now() - stuckSince > 2500) {
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+            console.log('[DEV] 偵測到空白說明背板，已自動關閉（避免畫面無法點擊）');
+            stuckSince = 0;
+          }
+        } else stuckSince = 0;
+      } catch (e) {}
+    }, 1000);
+  })();
+
   // 等遊戲就緒
   let tries = 0;
   const boot = setInterval(() => {
