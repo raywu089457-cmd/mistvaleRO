@@ -1,0 +1,35 @@
+流浪仙境 · 本機版（xianjingro.fun 快照）
+========================================
+
+【電腦玩】
+  雙擊 PLAY.cmd   → 自動起伺服器 + 開瀏覽器
+  或直接用：  http://127.0.0.1:8788/index.html
+  關掉 PLAY.cmd 的視窗 = 停止伺服器
+
+【手機玩（同一個 Wi-Fi）】
+  http://192.168.0.159:8788/index.html
+  ※ 這台電腦的 Wi-Fi 網路被 Windows 判定為「公用」，
+    防火牆預設會擋住外部連線。要開通，用「系統管理員」開 PowerShell 執行：
+
+    New-NetFirewallRule -DisplayName "Xianjingro 8788" -Direction Inbound -Protocol TCP -LocalPort 8788 -Action Allow -Profile Private,Public
+
+【手機玩（不用改防火牆）】
+  走 Tailscale：      http://100.79.149.0:8788/index.html   （手機也要裝 Tailscale 且同一個 tailnet）
+  走 Radmin VPN：     http://26.26.99.153:8788/index.html   （手機也要連同一個 Radmin 網路）
+
+【更新】
+  雙擊 UPDATE.cmd → 只抓有變動的檔案（每個請求間隔 1.1 秒，不會被封鎖）
+  更新後會自動把 CDN 路徑改回本機相對路徑。
+
+【檔案說明】
+  index.html      遊戲入口（xianjingro.fun 最新版）
+  h\              131 支 JS 腳本（其中 9 支改過素材根目錄，原檔為 *.orig）
+  assets\         素材 2,700+ 檔
+  PLAY.cmd        啟動（含手機網址提示）
+  UPDATE.cmd      更新
+  update.mjs      更新邏輯本體
+  STATUS.md       完整抓取與驗證紀錄
+
+【已知】
+  - 聊天室 / 排行榜 / 雲端存檔 / 帳號綁定 → 需要連線，離線不可用（單機進度正常存）
+  - 斷網驗證：16 張地圖 + 39 種怪 + 10 個場地 + 全部 UI → 404 = 0、錯誤 = 0

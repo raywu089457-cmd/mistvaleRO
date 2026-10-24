@@ -1,0 +1,4 @@
+*.orig
+_*.json
+_*.csv
+*.log
