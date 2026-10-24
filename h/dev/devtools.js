@@ -137,6 +137,25 @@
       location.reload();
     },
     assetScan() { scanAssets(); },
+    async cacheInfo() {
+      try {
+        const names = await caches.keys();
+        let n = 0;
+        for (const k of names) n += (await (await caches.open(k)).keys()).length;
+        info(`SW 快取：${names.length} 個空間 / ${n} 個檔案`);
+        console.log('[DEV] caches', names, 'entries', n);
+      } catch (e) { warn('沒有 Cache Storage'); }
+    },
+    async clearCache() {
+      try {
+        const names = await caches.keys();
+        await Promise.all(names.map(k => caches.delete(k)));
+        const regs = await navigator.serviceWorker?.getRegistrations?.() || [];
+        await Promise.all(regs.map(r => r.unregister()));
+        info('已清除快取，2 秒後重新載入（會重新下載約 15MB）');
+        setTimeout(() => location.reload(), 1800);
+      } catch (e) { warn('清除失敗：' + e.message); }
+    },
     offcap() {
       if (typeof offlineGains === 'function' && !offlineGains.__wrappedCap) {
         const orig = offlineGains;
@@ -218,6 +237,7 @@
 
         <h3 style="margin-top:12px">診斷</h3>
         <div class="row">${tile('素材自檢', 'assetScan')}${tile('看素材失敗清單', 'roFail')}</div>
+        <div class="row">${tile('看快取狀態', 'cacheInfo')}${tile('清除快取並重載', 'clearCache')}</div>
         <p class="note" style="line-height:1.7;margin-top:8px">
           素材自檢會把所有已載入的圖片重新解碼一次，把 naturalWidth=0 或 onerror 的列出來。<br>
           「看素材失敗清單」讀的是遊戲自己的 <code>RO.failed</code>。
@@ -294,6 +314,38 @@
     try { S.hp = PS.maxhp; } catch (e) {}
   }, 200);
 
+
+
+  // ---------- 手機保險：彈窗（離線收益／說明）滑不動、點不掉 ----------
+  (function mobileSheetFix() {
+    try {
+      const st = document.createElement('style');
+      st.id = 'devSheetFix';
+      st.textContent = [
+        // iOS 上彈窗常常不能捲動，導致「收下」按鈕在下面按不到
+        '#sheet{max-height:calc(100dvh - 32px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}',
+        // 背板不要攔截滑動手勢
+        '#sheetBg{touch-action:auto}',
+        '#sheet > .row:last-child{position:sticky;bottom:-1px;background:var(--paper,#f7e9cf);padding:8px 0 4px;z-index:2}'
+      ].join('');
+      document.head.appendChild(st);
+    } catch (e) {}
+
+    // 點背板（彈窗外面的空白）＝關閉，避免卡在沒有關閉鈕的彈窗
+    document.addEventListener('pointerdown', (e) => {
+      const bg = document.getElementById('sheetBg');
+      if (!bg || bg.hidden) return;
+      if (e.target !== bg) return;                 // 只認「真的點在背板」
+      const sheet = document.getElementById('sheet');
+      if (!sheet) return;
+      const close = sheet.querySelector('[data-act="close"]') ||
+                    sheet.querySelector('[data-act="sheetClose"]') ||
+                    [...sheet.querySelectorAll('button')].find(b => /收下|關閉|知道了|確定/.test(b.textContent || ''));
+      if (close) { close.click(); }
+      else { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); }
+      console.log('[DEV] 點背板關閉彈窗');
+    }, true);
+  })();
 
   // ---------- 保險：空的教學/說明背板會擋住所有點擊 ----------
   (function sheetGuard() {
