@@ -102,6 +102,16 @@ for (const rel of missing) {
   if (!got) { absent++; console.log('  ✗ 原站也沒有：', rel); }
   await wait(gapSec);
 }
+// ── 5. Service Worker 快取版號 +1（讓回訪者拿到新檔）───────
+try {
+  const swPath = 'sw.js';
+  const sw = await fs.readFile(swPath, 'utf8');
+  const next = 'xianjingro-v' + Date.now().toString(36);
+  const patched = sw.replace(/const CACHE = '[^']+';/, "const CACHE = '" + next + "';");
+  if (patched !== sw) { await fs.writeFile(swPath, patched, 'utf8'); console.log('  SW 快取版號 →', next); }
+} catch (e) { /* 沒有 sw.js 就跳過 */ }
+
+
 console.log('\n=== 完成 ===');
 console.log(`腳本更新 ${n} 支、移除 ${removed} 支、素材補到 ${ok} 個、原站也沒有 ${absent} 個`);
 console.log('接著用 PLAY.cmd 開，或跑一次離線巡檢確認。');
