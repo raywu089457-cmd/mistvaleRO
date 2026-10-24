@@ -11,6 +11,7 @@
     speed: 1,
     overlay: false,
     installed: false,
+    noOffCap: false,   // 離線經驗不受「地圖等級上限」限制
   };
   window.DEVMODE = DEV;
 
@@ -136,6 +137,22 @@
       location.reload();
     },
     assetScan() { scanAssets(); },
+    offcap() {
+      if (typeof offlineGains === 'function' && !offlineGains.__wrappedCap) {
+        const orig = offlineGains;
+        window.offlineGains = function (t, a, s) {
+          if (!DEV.noOffCap || typeof S === 'undefined' || !S) return orig.call(this, t, a, s);
+          const keep = S.map;
+          try { S.map = (typeof MAPS !== 'undefined' ? MAPS.length - 1 : keep); } catch (e) {}
+          const r = orig.call(this, t, a, s);
+          S.map = keep;
+          return r;
+        };
+        window.offlineGains.__wrappedCap = true;
+      }
+      DEV.noOffCap = !DEV.noOffCap;
+      info('離線經驗上限：' + (DEV.noOffCap ? '已解除（按最後一張地圖計算）' : '恢復原廠（地圖上限）'));
+    },
   };
 
   function jumpMap(i) {
@@ -188,6 +205,7 @@
         <h3 style="margin-top:12px">戰鬥</h3>
         <div class="row">${tile(DEV.god ? '無敵：開' : '無敵：關', 'god')}${tile(DEV.one ? '一擊必殺：開' : '一擊必殺：關', 'one')}${tile('清空場上', 'clear')}${tile('召喚 BOSS', 'boss')}${tile('生成 20 隻', 'swarm')}</div>
         <div class="row">${tile('速度 ×1/×2/×5', 'spd')}${tile(DEV.overlay ? '除錯資訊：開' : '除錯資訊：關', 'overlay')}${tile('輸出狀態', 'dump')}</div>
+        <div class="row">${tile(DEV.noOffCap ? '離線經驗上限：已解除' : '離線經驗上限：原廠', 'offcap')}</div>
 
         <h3 style="margin-top:12px">進度</h3>
         <div class="row">${tile('解鎖全部地圖', 'unlock')}</div>
