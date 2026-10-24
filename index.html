@@ -385,5 +385,6 @@ window.addEventListener("unhandledrejection",function(e){var r=e.reason;if(ext(r
 <script src="h/fc4f0dcd8896/ro-v152.js"></script>
 <script src="h/7016e316850e/ro-v153.js"></script>
 <script src="h/dev/devtools.js"></script>
+<script id="sw-register">(function(){if(!("serviceWorker" in navigator))return;if(!/^https?:$/.test(location.protocol))return;window.addEventListener("load",function(){setTimeout(function(){navigator.serviceWorker.register("sw.js").then(function(r){try{r.update()}catch(e){}}).catch(function(){})},1200)})})();</script>
 </body>
 </html>
