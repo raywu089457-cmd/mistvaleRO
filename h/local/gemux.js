@@ -7,6 +7,7 @@
  *    點空格 = 方塊（以中心）移過去，而且保持選取，可以連續微調
  * 4. 放入前可以先在預覽卡選方向；拖曳時方塊浮在手指上方，不會被手指擋住
  * 5. 放不下（紅色）時，說明卡直接告訴你，並給旋轉／放回
+ * 6. 觸控時已放好的方塊要按住約 0.25 秒才能拖（快速滑動＝捲動）；拖曳不會把方塊拉下來（放到外面／放不下 → 回原位）
  *
  * 所有動作都走遊戲原本的 onPanelClick（data-act="gem/rot/unplace/desel"），不自己改存檔資料。
  * 關閉：localStorage.setItem('gx.off','1') 後重新整理。
@@ -192,14 +193,39 @@
       return void (GX.press = { id: e.pointerId, x: e.clientX, y: e.clientY, u: +t.dataset.u, tray: true, sl: tr ? tr.scrollLeft : 0, mode: null });
     }
     const c = e.target.closest && e.target.closest('#sgrid button');
-    const g = c && gemAtCell(c);
-    if (g) GX.press = { id: e.pointerId, x: e.clientX, y: e.clientY, u: g.u, tray: false };
+    if (!c) return;
+    const g = gemAtCell(c), touch = e.pointerType !== 'mouse', pn = document.querySelector('#panel');
+    const p = GX.press = { id: e.pointerId, x: e.clientX, y: e.clientY, u: g ? g.u : null, tray: false, cell: true,
+      st0: pn ? pn.scrollTop : 0, armed: !!g && !touch, mode: null };
+    // 觸控：已放好的方塊要「按住約 0.25 秒」才可以拖（亮起＋震動），快速滑動＝捲動面板，不會誤抓
+    if (g && touch) p.timer = setTimeout(() => {
+      if (GX.press !== p || p.mode) return;
+      p.armed = true;
+      document.querySelectorAll(`#sgrid .gov[data-u="${g.u}"],#sgrid .gname[data-u="${g.u}"]`).forEach((el) => el.classList.add('gx-armed'));
+      gemCells(g).forEach(([x, y]) => document.querySelectorAll('#sgrid button')[6 * y + x]?.classList.add('gx-armed'));
+      try { navigator.vibrate && navigator.vibrate(15); } catch (er) {}
+    }, 250);
   }, true);
   // 寶石列上「橫向滑」= 捲動寶石列（自己捲，不交給遊戲，否則遊戲會當成拖曳）；
   // 往上／斜上拖 = 交給遊戲原本的拖曳放進格子。
   window.addEventListener('pointermove', (e) => {
     const p = GX.press;
-    if (p && !p.tray && p.id === e.pointerId && Math.hypot(e.clientX - p.x, e.clientY - p.y) >= 5) GX.dragU = p.u;
+    if (p && p.cell && p.id === e.pointerId) {
+      if (p.mode === 'drag') return;
+      const dy = e.clientY - p.y;
+      if (!p.mode) {
+        if (p.armed && p.u != null) {            // 已按住 → 交給遊戲拖曳
+          if (Math.hypot(e.clientX - p.x, dy) >= 5) { p.mode = 'drag'; GX.dragU = p.u; }
+          return;
+        }
+        if (Math.hypot(e.clientX - p.x, dy) < 6) { if (p.u != null) e.stopImmediatePropagation(); return; }
+        p.mode = 'scroll'; clearTimeout(p.timer); call(() => dragStop(false));
+      }
+      e.stopImmediatePropagation();
+      const pn = document.querySelector('#panel');
+      if (pn) pn.scrollTop = p.st0 - dy;
+      return;
+    }
     if (!p || !p.tray || p.id !== e.pointerId || p.mode === 'drag') return;
     const dx = e.clientX - p.x, dy = e.clientY - p.y;
     if (!p.mode) {
@@ -215,6 +241,8 @@
     const p = GX.press;
     GX.press = null;
     if (!p || p.id !== e.pointerId) return;
+    clearTimeout(p.timer);
+    if (p.cell && p.u == null && p.mode !== 'scroll') return;   // 點空格：交給 click（移動選取的方塊）
     if (p.mode === 'scroll') {
       e.stopImmediatePropagation();
       call(() => dragStop(false));
@@ -295,6 +323,8 @@
     };
     // 從預覽卡拖出去時，套用預覽選好的方向
     window.dragStart = function (...a) {
+      const g0 = gemBy(GX.dragU);
+      GX.dragFrom = g0 && g0.x >= 0 ? { x: g0.x, y: g0.y, rot: g0.rot } : null;
       const r = start.apply(this, a), n = GX.dragRot || 0;
       GX.dragRot = 0;
       for (let i = 0; i < n; i++) call(() => dragRotate());
@@ -302,11 +332,33 @@
     };
     // 放下之後保持選取那顆，方便馬上用方向鍵／旋轉微調
     const stop = dragStop;
+    // 拖曳不會把方塊「拉下來」：放到格子外或放不下的地方 → 回到原位；要取下只能按「取下」
+    // 拖到另一顆上 = 互換（被換的那顆直接放到空出來的位置，不會變成浮著要再點一次）
     window.dragStop = function (ok, ...a) {
-      const u = GX.dragU;
-      GX.dragU = null;
+      const u = GX.dragU, from = GX.dragFrom;
+      GX.dragU = null; GX.dragFrom = null;
+      const before = (call(() => placed()) || []).map((x) => x.u);
       const r = stop.call(this, ok, ...a), g = u != null && gemBy(u);
-      if (ok && g && g.x >= 0 && !ui.ghost) { ui.selGem = g.u; GX.prev = null; ui.render(); }
+      if (!ok || !g) return r;
+      const held = document.getElementById('dragGem');
+      const displaced = before.map(gemBy).find((x) => x && x.u !== g.u && x.x < 0);
+      if (held && displaced) {                    // 遊戲的互換：被換下的那顆變成「拿起」狀態 → 直接幫它找位置
+        stop.call(this, false);
+        const c = from ? centerOf(gemCells(g, from.x, from.y, from.rot)) : centerOf(gemCells(g));
+        const s = fitNear(displaced, displaced.rot, c[0], c[1], null, 3) || [1, 2, 3].map((d) => fitNear(displaced, (displaced.rot + d) % 4, c[0], c[1], null, 3)).find(Boolean);
+        if (s) placeGem(displaced, s.x, s.y, s.rot); else say('被換下的寶石放回寶石列');
+      }
+      const ghost = ui.ghost && ui.ghost.u === g.u;
+      if (g.x < 0 && from) {                      // 被拉到格子外，或放在放不下的地方
+        ui.ghost = null;
+        if (canPlace(g, from.x, from.y, from.rot)) placeGem(g, from.x, from.y, from.rot);
+        say(ghost ? '那裡放不下，已放回原位' : '已放回原位（要取下請按「取下」）');
+      } else if (g.x < 0 && ghost) {              // 從寶石列拖進來但放不下
+        ui.ghost = null;
+        say('那裡放不下這個形狀，換個位置試試', 1);
+      }
+      if (g.x >= 0) { ui.selGem = g.u; GX.prev = null; }
+      ui.render();
       return r;
     };
   }
@@ -349,6 +401,7 @@
 #panel .gx-dock #tray .gem[aria-pressed="true"]{outline:2px solid #5aa0e0}
 #panel .gx-dock.gx-has-card > :not(.gx-card),#panel .gx-dock.gx-has-card > #tray{display:none!important}
 #panel .ro-gem-tools [data-act="rot"],#panel .ro-gem-tools [data-act="unplace"],#panel .ro-gem-tools [data-act="desel"]{display:none!important}
+#sgrid .gx-armed{filter:brightness(1.18) drop-shadow(0 4px 6px rgba(20,40,70,.35));transform:scale(1.04);transition:transform .08s}
 .gx-card{font-size:13px;line-height:1.45}
 .gx-card .gx-head{display:flex;gap:10px;align-items:center;margin-bottom:2px}
 .gx-card .gx-head img{width:34px;height:34px;image-rendering:pixelated;flex:none}
