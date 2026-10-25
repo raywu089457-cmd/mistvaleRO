@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>流浪仙境 · 手機能不能跑（自我檢查）</title>
+<style>
+  :root { color-scheme: dark }
+  * { box-sizing: border-box }
+  body {
+    margin: 0; padding: 18px 14px calc(26px + env(safe-area-inset-bottom));
+    background: radial-gradient(circle at 50% 0%, #141d31, #080b13 70%);
+    color: #dfe7ff; min-height: 100vh;
+    font: 14px/1.7 "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  }
+  .wrap { max-width: 460px; margin: 0 auto }
+  h1 { font-size: 19px; letter-spacing: .06em; color: #5ee0c8; margin: 0 0 4px }
+  .sub { font-size: 12px; color: #7f8db3; margin: 0 0 16px }
+  .verdict { border-radius: 10px; padding: 14px; margin: 0 0 16px; font-size: 15px; line-height: 1.6 }
+  .verdict.ok { background: #12402f; border: 1px solid #2c7f6c; color: #b9ffe9 }
+  .verdict.bad { background: #3a1a22; border: 1px solid #7a2e3e; color: #ffc9d2 }
+  .card { background: #0f1622; border: 1px solid #24334a; border-radius: 10px; padding: 10px 13px; margin: 0 0 12px; font-size: 12.5px }
+  .card h2 { font-size: 12px; color: #6b7b96; font-weight: 400; margin: 0 0 6px; letter-spacing: .1em }
+  .kv { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-bottom: 1px dotted #1e2a3d }
+  .kv:last-child { border-bottom: 0 }
+  .kv span:first-child { color: #8fa0bd; flex: none }
+  .kv span:last-child { text-align: right; word-break: break-all; color: #cfe3ff }
+  .ok { color: #7dffc8 } .bad { color: #ff8a9a } .warn { color: #ffb347 }
+  pre { margin: 0; white-space: pre-wrap; word-break: break-all; font: 11.5px/1.65 ui-monospace, monospace; color: #9fb0d6 }
+  a { color: #6fd7ff }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>這台手機能不能跑遊戲</h1>
+  <p class="sub">這一頁故意用很舊的語法寫，所以連很舊的瀏覽器都跑得動 —— 它會告訴我們遊戲是「哪一項」跑不起來。</p>
+
+  <div id="verdict" class="verdict">檢查中…</div>
+  <div class="card" id="browser"></div>
+  <div class="card" id="features"></div>
+  <div class="card" id="network"></div>
+  <div class="card"><h2>回報用的完整內容</h2><pre id="dump">…</pre></div>
+  <p class="sub" style="margin-top:14px"><a href="./index.html">← 回遊戲</a></p>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var out = [];
+  var fails = [];
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function row(k, v, cls) {
+    return '<div class="kv"><span>' + esc(k) + '</span><span class="' + (cls || '') + '">' + v + '</span></div>';
+  }
+  function dump(s) { out.push(s); }
+
+  // ---------- 1. 瀏覽器資訊 ----------
+  var ua = navigator.userAgent || '';
+  var inApp = '';
+  if (/MicroMessenger/i.test(ua)) inApp = '微信';
+  else if (/Line\//i.test(ua)) inApp = 'LINE';
+  else if (/FBAN|FBAV|Instagram/i.test(ua)) inApp = 'Facebook / Instagram';
+  else if (/Telegram/i.test(ua)) inApp = 'Telegram';
+  else if (/Twitter/i.test(ua)) inApp = 'X / Twitter';
+  else if (/; wv\)/i.test(ua)) inApp = '某個 App 的內建瀏覽器（WebView）';
+
+  var b = [];
+  b.push(row('瀏覽器', esc(ua.slice(0, 120))));
+  b.push(row('內建瀏覽器', inApp ? '<span class="warn">是（' + esc(inApp) + '）</span>' : '<span class="ok">不是</span>'));
+  b.push(row('視窗', (window.innerWidth || 0) + ' × ' + (window.innerHeight || 0) + ' ・ DPR ' + (window.devicePixelRatio || 1)));
+  b.push(row('語言', esc(navigator.language || '?')));
+  b.push(row('連線', (navigator.connection && navigator.connection.effectiveType) ? esc(navigator.connection.effectiveType) : '未知'));
+  $('browser').innerHTML = '<h2>瀏覽器</h2>' + b.join('');
+  dump('UA: ' + ua);
+  dump('inApp: ' + (inApp || 'no'));
+  dump('viewport: ' + window.innerWidth + 'x' + window.innerHeight + ' dpr=' + (window.devicePixelRatio || 1));
+  if (inApp) fails.push('你是在 App 內建瀏覽器裡開的（' + inApp + '）');
+
+  // ---------- 2. 語法 / 功能檢查 ----------
+  // 用 new Function 包起來：語法不支援會丟 SyntaxError，可以攔下來
+  var tests = [
+    ['let / const',            'let a=1; const b=2; return a+b;'],
+    ['箭頭函式 () =>',          'var f=(x)=>x*2; return f(2);'],
+    ['樣板字串 `',             'var x=1; return `a${x}`;'],
+    ['展開運算子 ...',          'var a=[1,2]; return [...a,3].length;'],
+    ['物件解構 {a}',            'var o={a:1,b:2}; var {a,b}=o; return a+b;'],
+    ['for...of',              'var s=0; for (var v of [1,2,3]) s+=v; return s;'],
+    ['Map / Set',             'var m=new Map(); m.set(1,2); return m.get(1);'],
+    ['Promise',               'return typeof Promise==="function";'],
+    ['async / await',         'var f=async function(){ return 1; }; return typeof f==="function";'],
+    ['?. 可選串連',             'var o={a:{b:1}}; return o?.a?.b;'],
+    ['?? 空值合併',             'var x=null; return (x ?? 5);'],
+    ['||= &&= 邏輯賦值',        'var a=null; a ||= 3; return a;'],
+    ['物件展開 {...o}',         'var o={a:1}; return ({...o}).a;'],
+    ['Object.fromEntries',    'return Object.fromEntries([["a",1]]).a;'],
+    ['Object.entries',        'return Object.entries({a:1}).length;'],
+    ['Array.flat',            'return [1,[2]].flat().length;'],
+    ['Array.at',              'return [1,2,3].at(-1);'],
+    ['String.replaceAll',     'return "aa".replaceAll("a","b");'],
+    ['String.padStart',       'return "1".padStart(2,"0");'],
+    ['structuredClone',       'return typeof structuredClone==="function";'],
+    ['CompressionStream',     'return typeof CompressionStream==="function";'],
+    ['TextEncoder',           'return typeof TextEncoder==="function";'],
+    ['AudioContext',          'return typeof (window.AudioContext||window.webkitAudioContext)==="function";'],
+    ['ServiceWorker（非必要）',  'return "serviceWorker" in navigator;', 0],
+    ['CacheStorage（非必要）',   'return typeof caches!=="undefined";', 0],
+    ['IntersectionObserver',  'return typeof IntersectionObserver==="function";'],
+    ['requestAnimationFrame', 'return typeof requestAnimationFrame==="function";'],
+    ['localStorage',          'var k="__t"; localStorage.setItem(k,"1"); var v=localStorage.getItem(k); localStorage.removeItem(k); return v==="1";']
+  ];
+  var f = [];
+  for (var i = 0; i < tests.length; i++) {
+    var name = tests[i][0], body = tests[i][1], need = (tests[i][2] === 0 ? 0 : 1), good = false, err = '';
+    try {
+      good = !!new Function(body)();
+    } catch (e) { err = (e && e.name ? e.name : 'ERR'); }
+    var why = err;
+    if (!good && !need && !window.isSecureContext) why = 'HTTP 下不能用（不影響遊玩）';
+    if (!good && need) { fails.push(name + (err ? '（' + err + '）' : '')); }
+    f.push(row(name, good ? '<span class="ok">✓</span>'
+      : (need ? '<span class="bad">✗ ' + esc(why) + '</span>' : '<span class="warn">－ ' + esc(why) + '</span>')));
+    dump(name + ': ' + (good ? 'OK' : 'FAIL ' + err));
+  }
+  $('features').innerHTML = '<h2>遊戲需要的功能</h2>' + f.join('');
+
+  // ---------- 3. 網路：抓一支遊戲腳本 + 首頁 ----------
+  var net = [];
+  function head(url, label) {
+    var t0 = Date.now();
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState !== 4) return;
+      var ms = Date.now() - t0;
+      var okStatus = (xhr.status >= 200 && xhr.status < 300) || xhr.status === 0; // file:// 時是 0
+      var size = xhr.responseText ? xhr.responseText.length : 0;
+      net.push(row(label, (okStatus ? '<span class="ok">' : '<span class="bad">') +
+        'HTTP ' + xhr.status + ' ・ ' + size + ' 字元 ・ ' + ms + ' ms</span>'));
+      dump(label + ': status=' + xhr.status + ' size=' + size + ' ms=' + ms);
+      if (!okStatus || !size) fails.push('抓不到 ' + label + '（HTTP ' + xhr.status + '）');
+      net.__done = (net.__done || 0) + 1;
+      if (net.__done === 2) $('network').innerHTML = '<h2>網路（能不能下載遊戲檔）</h2>' + net.join('');
+    };
+    xhr.send();
+  }
+  $('network').innerHTML = '<h2>網路</h2>' + row('測試中…', '');
+  head('./index.html', 'index.html');
+  head('./h/7b9ce3381f3b/engine.js', 'engine.js（1 MB）');
+
+  // ---------- 4. 結論 ----------
+  var verdict = $('verdict');
+  var v = '', cls = 'ok';
+  if (!fails.length) {
+    v = '<b>全部通過。</b>這台手機的瀏覽器可以跑遊戲 —— 那「卡讀取」就是快取或網路的問題，請到 ' +
+        '<a href="./reset.html">reset.html</a> 按「清除快取（保留存檔）」。';
+  } else {
+    cls = 'bad';
+    v = '<b>有 ' + fails.length + ' 項不過，這就是要修的地方：</b><br>' +
+        fails.map(function (x, i) { return (i + 1) + '. ' + esc(x); }).join('<br>');
+    if (inApp) {
+      v += '<br><br><b>最主要的原因很可能是這個：</b>你是在 ' + esc(inApp) +
+           ' 的內建瀏覽器裡開的。點右上角選単 →「<b>在瀏覽器中開啟</b>」（或「用 Safari / Chrome 開啟」）再試一次。';
+    }
+  }
+  verdict.className = 'verdict ' + cls;
+  verdict.innerHTML = v;
+  dump('---- fails ----');
+  dump(fails.length ? fails.join(' / ') : 'none');
+  $('dump').textContent = out.join('\n');
+})();
+</script>
+</body>
+</html>
