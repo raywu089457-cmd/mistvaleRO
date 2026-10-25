@@ -180,9 +180,9 @@ RO 美術素材屬 Gravity，原作也是同人作品。
 | 換地圖 m0/m3/m5/m10/m15 | — | 正常換曲 |
 | JS 錯誤／404 | — | 0／0 |
 
-### 順帶發現：缺 7 首 BGM（不是這次改的）
+### 順帶補齊：7 首缺掉的 BGM（已補）
 
-`ro-bgm.js` 的 23 首曲子裡有 **7 首本機沒有**（原站有、CDN 也回 200）：
+`ro-bgm.js` 的 23 首曲子裡原本有 **7 首本機沒有**（原站有、CDN 也回 200）：
 
 ```
 title.mp3  5.0 MB   boss.mp3    1.5 MB   boss2.mp3  1.1 MB   tower.mp3  1.5 MB
@@ -193,3 +193,14 @@ m16_thor.mp3  2.7 MB   m17_poseidon.mp3  1.5 MB   m18_darklord.mp3  0.6 MB     �
 `RO_BGM_DIR + d.f + RO_BGM_EXT` 串出來的，掃不到 → 這 7 首從來沒被抓過。
 影響：標題、一般 BOSS、守護者／試煉 BOSS、無盡之塔、神域三王，實際聽到的都是合成配樂
 （退回機制正常，不是錯誤），跟「音樂與音效來源」面板列出的曲目對不上。
+
+已用 1.1 秒間隔從 CDN 補齊（7 個請求、0 失敗、位元組數與 `Content-Length` 完全一致）：
+
+```
+title.mp3 5.0MB  boss.mp3 1.5MB  boss2.mp3 1.1MB  tower.mp3 1.5MB
+m16_thor.mp3 2.7MB  m17_poseidon.mp3 1.5MB  m18_darklord.mp3 0.6MB     共 13.4 MB
+```
+
+驗證：`assets/audio/bgm/` 共 23 首 = `RO_BGM` 曲目數，缺 0；簽章全為 ID3v2；
+在瀏覽器裡逐一 `roBgmSwitch()` → 23 首全部解碼成功、時長正常、`roBgm.bad` 空、404 = 0。
+音樂關掉時這 7 首（含檔案路徑）一樣關得掉。
