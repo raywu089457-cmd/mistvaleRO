@@ -9,10 +9,12 @@
 //  3. 新下載的檔案，把 https://cdn.xianjingro.fun/ 換成空字串（並保留 .orig）
 //  4. 刪掉新版不再引用的舊腳本
 //  5. 掃描所有 JS 的字面素材路徑，缺的就從 CDN 補（同樣 1.1 秒間隔）
+//  6. 重新套用 local-patches.mjs（index.html 會被線上版蓋掉，本機修改要補回來）
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
+import { applyAll as applyLocalPatches } from './local-patches.mjs';
 
 const SITE = 'https://xianjingro.fun/';
 const CDN = 'https://cdn.xianjingro.fun/';
@@ -64,7 +66,7 @@ console.log('  下載完成：', n, '支');
 const wantSet = new Set(want);
 let removed = 0;
 for (const rel of have) {
-  if (!wantSet.has(rel) && !rel.endsWith('.orig')) {
+  if (!wantSet.has(rel) && !rel.endsWith('.orig') && !rel.startsWith('h/dev/')) {   // h/dev/ 是本機自己加的
     if (!DRY) await fs.rm(rel, { force: true });
     removed++;
   }
@@ -102,7 +104,10 @@ for (const rel of missing) {
   if (!got) { absent++; console.log('  ✗ 原站也沒有：', rel); }
   await wait(gapSec);
 }
-// ── 5. Service Worker 快取版號 +1（讓回訪者拿到新檔）───────
+// ── 5. 重新套用本機修改（載入浮層、fast-boot、音效延後、開發者面板、SW 註冊）
+if (!DRY) { console.log('▶ 套用本機修改'); applyLocalPatches(); }
+
+// ── 6. Service Worker 快取版號 +1（讓回訪者拿到新檔）───────
 try {
   const swPath = 'sw.js';
   const sw = await fs.readFile(swPath, 'utf8');
