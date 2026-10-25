@@ -40,6 +40,7 @@
   <div class="card" id="browser"></div>
   <div class="card" id="features"></div>
   <div class="card" id="network"></div>
+  <div class="card" id="scripts"></div>
   <div class="card"><h2>回報用的完整內容</h2><pre id="dump">…</pre></div>
   <p class="sub" style="margin-top:14px"><a href="./index.html">← 回遊戲</a></p>
 </div>
@@ -151,7 +152,78 @@
   head('./index.html', 'index.html');
   head('./h/7b9ce3381f3b/engine.js', 'engine.js（1 MB）');
 
-  // ---------- 4. 結論 ----------
+  // ---------- 3.5 逐支檢查遊戲腳本能不能「解析」----------
+  // 用 new Function() 只解析不執行：語法不支援（例如舊瀏覽器不認得 ?. 或 ||=）
+  // 會丟 SyntaxError，就能直接指出是哪一支、錯在哪個字元。
+  (function checkScripts() {
+    var box = $('scripts');
+    box.innerHTML = '<h2>遊戲腳本逐支解析檢查</h2>' + row('準備中…', '');
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', './index.html', true);
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState !== 4) return;
+      if (xhr.status !== 200 && xhr.status !== 0) {
+        box.innerHTML = '<h2>遊戲腳本</h2>' + row('抓不到 index.html', '<span class="bad">HTTP ' + xhr.status + '</span>');
+        return;
+      }
+      var html = xhr.responseText || '';
+      var re = /<script[^>]+src="([^"]+)"/g, m, list = [], seen = {};
+      while ((m = re.exec(html))) { if (!seen[m[1]]) { seen[m[1]] = 1; list.push(m[1]); } }
+      if (!list.length) { box.innerHTML = '<h2>遊戲腳本</h2>' + row('index.html 裡找不到腳本', '<span class="bad">?</span>'); return; }
+      var done = 0, okN = 0, bads = [], running = 0, idx = 0, total = list.length;
+      function paint() {
+        var h = '<h2>遊戲腳本逐支解析檢查</h2>';
+        h += row('進度', done + ' / ' + total);
+        h += row('可以解析', '<span class="' + (bads.length ? 'warn' : 'ok') + '">' + okN + ' 支</span>');
+        h += row('語法不支援', '<span class="' + (bads.length ? 'bad' : 'ok') + '">' + bads.length + ' 支</span>');
+        if (bads.length) {
+          h += '<div style="margin-top:8px;color:#ff8a9a">問題腳本：</div>';
+          for (var i = 0; i < bads.length && i < 6; i++) {
+            h += '<div style="margin-top:6px"><b style="color:#ffc9d2">' + esc(bads[i].f) + '</b><br>' +
+                 '<span style="color:#8fa0bd;font-size:11.5px">' + esc(bads[i].e) + '</span></div>';
+          }
+          if (bads.length > 6) h += '<div style="margin-top:6px;color:#8fa0bd">…還有 ' + (bads.length - 6) + ' 支</div>';
+        }
+        box.innerHTML = h;
+      }
+      function one() {
+        if (idx >= total) return;
+        var f = list[idx++];
+        running++;
+        var r = new XMLHttpRequest();
+        r.open('GET', './' + f, true);
+        r.onreadystatechange = function () {
+          if (r.readyState !== 4) return;
+          running--;
+          if (r.status === 200 || r.status === 0) {
+            try { new Function(r.responseText || ''); okN++; }
+            catch (e) { bads.push({ f: f, e: (e && e.name ? e.name : 'ERR') + ': ' + (e && e.message ? e.message : '') }); }
+          } else {
+            bads.push({ f: f, e: 'HTTP ' + r.status + '（抓不到）' });
+          }
+          done++;
+          if (done % 10 === 0 || done === total) paint();
+          dump('script ' + f + ': ' + (bads.length && bads[bads.length - 1].f === f ? 'FAIL' : 'ok'));
+          if (done === total) {
+            if (bads.length) fails.push(bads.length + ' 支遊戲腳本語法不支援（第一支：' + bads[0].f + '）');
+            paint();
+            finish();
+          }
+          pump();
+        };
+        r.send();
+      }
+      function pump() { while (running < 4 && idx < total) one(); }
+      pump();
+    };
+    xhr.send();
+  })();
+
+  // ---------- 4. 結論（等腳本檢查跑完；最多等 45 秒）----------
+  var finished = false;
+  function finish() {
+  if (finished) return;
+  finished = true;
   var verdict = $('verdict');
   var v = '', cls = 'ok';
   if (!fails.length) {
@@ -171,6 +243,9 @@
   dump('---- fails ----');
   dump(fails.length ? fails.join(' / ') : 'none');
   $('dump').textContent = out.join('\n');
+  }
+  var guard = setTimeout(finish, 45000);
+  setTimeout(function () { if (finished) clearTimeout(guard); }, 46000);
 })();
 </script>
 </body>
