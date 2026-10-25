@@ -154,3 +154,42 @@ RO 美術素材屬 Gravity，原作也是同人作品。
 
 驗證：選方向→放入、方向鍵、繞中心旋轉、靠牆旋轉、點空格移動、觸控拖曳（方塊在手指上方、落點高一排）、
 從預覽卡拖出帶方向、放下後保持選取、最下排不被蓋住、格子滿提示；舊的點擊／拖曳／橫滑／桌機／WebKit 測試全部通過。
+
+## 音樂關不掉修正（2026-10-25）
+
+使用者回報「設定裡把音樂關掉，但還是沒有完全關掉」。實測重現到四個原因，全部修掉。
+
+檔案：`h/local/audiovol.js`（新增，由 `local-patches.mjs` 注入 `index.html`；**沒有改任何原始遊戲腳本**）。
+
+| # | 原因（實測） | 改法 |
+|---|---|---|
+| 1 | 背景音樂是 `<audio>` 元素，只靠 `musTick()` → `roBgmTick()` 去 `pause()`；而 `musTick` 開頭就 `if ("running" !== AU.ctx.state) return;`。**手機上 AudioContext 被系統暫停時（螢幕鎖定、切到別的 app、iOS 省電）整個 tick 不跑，音樂就永遠關不掉**——實測：暫停後把音樂轉到 0，等 5 秒，`currentTime` 還在跑（8.75 → 12.76） | 關掉音樂的判定完全不吃 `AU.ctx` 狀態：`visibilitychange`／`pageshow`／`focus` 事件 + 一個 400 ms 的保險計時器，直接把元素 `pause()` 並把 `volume` 歸零 |
+| 2 | `auApply()` 用 `setTargetAtTime()` 趨近目標，那是漸近線**永遠到不了 0**；AudioContext 一暫停、音訊時鐘凍結，增益就卡在舊值（實測：設定 0 之後 `AU.mus.gain` 還是 0.15） | 音量 0 時改用 `cancelScheduledValues()` + `setValueAtTime(0)`，直接歸零 |
+| 3 | 音量來源 `auVol()` 在**還沒有角色存檔時**（標題／選角畫面）回退成預設 0.5，那段時間的音樂完全不吃使用者的設定 | `roBgmVol()` 改讀自己的 `roVolOf()`：有角色存檔用存檔，沒有就用上次記住的（存進 localStorage，也會從既有角色存檔撈一次） |
+| 4 | 關掉時只 `pause()`，`<audio>` 的 `volume` 留在原值（實測 0.169），任何 `play()` 都會全音量放出來——`ro-bgm.js` 自己「播完跳回循環段」就是一條 | 包住 `roBgmMake()`，音樂關掉時 `play()` 直接不作用；`roBgmTick` 在關掉時也直接回傳 `true`，連合成配樂都不跑 |
+
+驗證（Playwright + 在 `AudioContext.destination` 前面插音量計實測輸出）：
+
+| 情境 | 修正前 | 修正後 |
+|---|---|---|
+| UI 滑桿轉到 0 | paused，但 `volume` 留 0.169 | paused，`volume` 0，`AU.mus.gain` = 0 |
+| 轉到 0 **且 AudioContext 被暫停**（手機情境） | **還在播**（currentTime 持續增加） | 立刻停住 |
+| 選角畫面（還沒有角色）配 `mus=0` | 以 0.18 音量播放 title 曲 | 不播 |
+| 打王時全關（音樂＋音效） | — | 畫面上 0 個 `<audio>` 在播、兩個增益都 0 |
+| 轉回 50／60 | — | 正常從原位置淡入續播 |
+| 換地圖 m0/m3/m5/m10/m15 | — | 正常換曲 |
+| JS 錯誤／404 | — | 0／0 |
+
+### 順帶發現：缺 7 首 BGM（不是這次改的）
+
+`ro-bgm.js` 的 23 首曲子裡有 **7 首本機沒有**（原站有、CDN 也回 200）：
+
+```
+title.mp3  5.0 MB   boss.mp3    1.5 MB   boss2.mp3  1.1 MB   tower.mp3  1.5 MB
+m16_thor.mp3  2.7 MB   m17_poseidon.mp3  1.5 MB   m18_darklord.mp3  0.6 MB     合計約 13.4 MB
+```
+
+原因是 `update.mjs`／`gap.mjs` 是**掃 JS 裡的「字面」素材路徑**，而 `ro-bgm.js` 是
+`RO_BGM_DIR + d.f + RO_BGM_EXT` 串出來的，掃不到 → 這 7 首從來沒被抓過。
+影響：標題、一般 BOSS、守護者／試煉 BOSS、無盡之塔、神域三王，實際聽到的都是合成配樂
+（退回機制正常，不是錯誤），跟「音樂與音效來源」面板列出的曲目對不上。
