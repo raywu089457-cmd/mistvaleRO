@@ -66,7 +66,7 @@ console.log('  下載完成：', n, '支');
 const wantSet = new Set(want);
 let removed = 0;
 for (const rel of have) {
-  if (!wantSet.has(rel) && !rel.endsWith('.orig') && !rel.startsWith('h/dev/')) {   // h/dev/ 是本機自己加的
+  if (!wantSet.has(rel) && !rel.endsWith('.orig') && !/^h\/(dev|local)\//.test(rel)) {   // h/dev/、h/local/ 是本機自己加的
     if (!DRY) await fs.rm(rel, { force: true });
     removed++;
   }

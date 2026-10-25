@@ -3,7 +3,7 @@
 //   node local-patches.mjs        直接對目前的檔案套用（已套用過的會略過）
 //
 // 內容：
-//  1. index.html：載入浮層（local/body-start.html）、開發者面板＋Service Worker 註冊（local/body-end.html）
+//  1. index.html：載入浮層（local/body-start.html）、寶石盤操作改良＋開發者面板＋Service Worker 註冊（local/body-end.html）
 //  2. index.html：音效資料 ro-sfx-data.js（535 KB，壓不小）改成 window load 之後才載入
 //     —— ro-bgm.js 每次播音效都會重試 roSfxLoad()，資料到之前用原本的合成音效代替
 //  3. ro-content.js：fast-boot —— 只等角色／道具／技能圖示（約 0.2 MB）就開遊戲，
@@ -40,10 +40,10 @@ export function patchIndexHtml(html) {
   }
   const m = t.match(SFX_TAG);
   if (m) { t = t.replace(SFX_TAG, sfxLoader(m[1])); log('index.html：音效資料改成延後載入'); }
-  if (!t.includes('h/dev/devtools.js') || !t.includes('id="sw-register"')) {
-    const tail = L('body-end.html').split('\n').filter((l) => l && !t.includes(l)).join('\n');
+  const tail = L('body-end.html').split('\n').filter((l) => l && !t.includes(l)).join('\n');
+  if (tail) {
     const at = t.lastIndexOf('</body>');   // 用最後一個：前面的 inline 腳本字串裡也有 </body>
-    if (tail && at >= 0) { t = t.slice(0, at) + tail + '\n' + t.slice(at); log('index.html：加回開發者面板／Service Worker 註冊'); }
+    if (tail && at >= 0) { t = t.slice(0, at) + tail + '\n' + t.slice(at); log('index.html：加回本機腳本（寶石盤改良／開發者面板／SW 註冊）'); }
   }
   doc.text = t;
   return typeof html === 'string' ? (doc.crlf ? t.replace(/\n/g, '\r\n') : t) : doc;
