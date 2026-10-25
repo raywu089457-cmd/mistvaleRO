@@ -224,6 +224,7 @@
     try { if (typeof SLOT_NAME !== 'undefined' && SLOT_NAME[v]) return SLOT_NAME[v]; } catch (e) {}
     return SLOT_N[v] || v;
   };  const RAR_OPT = [['', '隨機'], ['0', '普通'], ['1', '魔法'], ['2', '稀有'], ['3', '傳奇'], ['4', '神話']];
+  const CTLFONT = "font-family:system-ui,-apple-system,'PingFang TC','Noto Sans TC',sans-serif;";
   const E = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   // 遊戲的全域表（都是 script 最上層的 const，用 typeof 保護，缺了也不會爆）
@@ -251,6 +252,16 @@
   }
 
   function itemCtrl() {
+    if (IED.on) {
+      let e = `<div class="row" style="margin:0 0 6px;flex-wrap:nowrap">` +
+        `<button data-di-back="1" class="btn" style="flex:none;padding:7px 12px;font-size:13px;${CTLFONT}">← 返回清單</button>` +
+        `<span class="note" style="flex:1;margin:0;font-size:11.5px;text-align:right">設定好後按最下面「放入背包」</span></div>`;
+      e += `<div class="row" style="margin:0;flex-wrap:nowrap"><span class="note" style="flex:none">數量</span>` +
+        `<div class="seg" style="flex:1">` +
+        QTY_OPTS.map((n) => `<button data-di-qty="${n}" aria-pressed="${IST.qty === n}" style="font-size:13px;padding:7px 4px;${CTLFONT}">×${n}</button>`).join('') +
+        `</div></div>`;
+      return e;
+    }
     let h = `<div class="seg" style="margin:0 0 6px;flex-wrap:wrap">` +
       ITABS.map(([k, n]) => `<button data-di-tab="${k}" aria-pressed="${IST.tab === k}" style="flex:1 0 auto;min-width:44px;font-size:13px;padding:7px 4px;font-family:system-ui,-apple-system,'PingFang TC','Noto Sans TC',sans-serif;">${n}</button>`).join('') +
       `</div>`;
@@ -258,17 +269,6 @@
       `<div class="seg" style="flex:1">` +
       QTY_OPTS.map((n) => `<button data-di-qty="${n}" aria-pressed="${IST.qty === n}" style="font-size:13px;padding:7px 4px;font-family:system-ui,-apple-system,'PingFang TC','Noto Sans TC',sans-serif;">×${n}</button>`).join('') +
       `</div></div>`;
-    if (IST.tab === 'equip') {
-      const slots = [['', '隨機']].concat(T.slots().map((s) => [s, slotName(s)]));
-      h += `<div class="row" style="margin:0 0 4px;flex-wrap:nowrap;align-items:flex-start"><span class="note" style="flex:none;width:28px">部位</span>` +
-        `<div class="seg" style="flex:1;flex-wrap:wrap">` +
-        slots.map(([v, n]) => `<button data-di-set="slot" data-di-val="${v}" aria-pressed="${IST.slot === v}" style="flex:1 0 auto;min-width:44px;font-size:13px;padding:6px 3px;font-family:system-ui,-apple-system,'PingFang TC','Noto Sans TC',sans-serif;">${n}</button>`).join('') +
-        `</div></div>`;
-      h += `<div class="row" style="margin:0 0 6px;flex-wrap:nowrap;align-items:flex-start"><span class="note" style="flex:none;width:28px">稀有</span>` +
-        `<div class="seg" style="flex:1;flex-wrap:wrap">` +
-        RAR_OPT.map(([v, n]) => `<button data-di-set="rar" data-di-val="${v}" aria-pressed="${IST.rar === v}" style="flex:1 0 auto;min-width:40px;font-size:13px;padding:6px 3px;font-family:system-ui,-apple-system,'PingFang TC','Noto Sans TC',sans-serif;">${n}</button>`).join('') +
-        `</div></div>`;
-    }
     if (IST.tab === 'gem' || IST.tab === 'card') {
       h += `<p class="note" style="margin:0 0 6px">每次點一下加入 1 個。</p>`;
     }
@@ -284,18 +284,26 @@
     const busy = [];
     try {
       if (IST.tab === 'equip') {
-        const rarN = (ISR) => ({ '0': '普通', '1': '魔法', '2': '稀有', '3': '傳奇', '4': '神話' }[ISR] || '隨機');
-        const slotTxt = IST.slot ? slotName(IST.slot) : '隨機部位';
-        rows.push(irow('equip:new', '生成一般裝備', `${slotTxt} ・ ${rarN(IST.rar)} ・ 等級 ${S.lvl}`, '#e8e8e8'));
-        rows.push(irow('equip:sock', '生成「有洞」裝備', `${slotTxt} ・ 可插槽石板`, '#5fd0c0'));
-        rows.push(irow('equip:uniq', '生成隨機獨特裝備', `${slotTxt} ・ 等級 120`, '#ff5a82'));
+        if (IED.on) return editBody(hit);
         const bagUq = new Set();
         for (const it of S.bag || []) if (it && it.uq) bagUq.add(it.uq);
+        const uqRows = [];
         for (const [k, d] of Object.entries(T.uniq())) {
           if (!d || d.my) continue;
           const nm = d.n || k;
           if (!hit(nm) && !hit(k)) continue;
-          rows.push(irow('uniq:' + k, nm, `${slotName(d.slot)}${bagUq.has(k) ? ' ・ 背包已有' : ''} ・ ${k}`, '#ff5a82'));
+          uqRows.push(irow('edit:uq:' + k, nm, `獨特 ・ ${slotName(d.slot)}${bagUq.has(k) ? ' ・ 背包已有' : ''}`, '#ff5a82'));
+        }
+        rows.push(`<div class="note" style="margin:2px 0 6px">點一件裝備 → 可改<b>稀有度／品質／精煉／卡片槽／屬性</b>，部位固定不變。</div>`);
+        rows.push(`<div class="note" style="margin:10px 0 4px;font-weight:400;color:#8a3e14">✦ 獨特裝備（${uqRows.length}）</div>`);
+        rows.push.apply(rows, uqRows);
+        rows.push(`<div class="note" style="margin:14px 0 0;font-weight:400;color:#8a3e14">✦ 一般裝備（全部具名底座）</div>`);
+        for (const sl of T.slots()) {
+          const list = baseNames(sl);
+          const inGrp = list.map((nm, bi) => ({ nm, bi })).filter((x) => hit(x.nm));
+          if (!inGrp.length) continue;
+          rows.push(`<div class="note" style="margin:8px 0 4px;font-weight:400;color:#5a6b7c">・${slotName(sl)}</div>`);
+          for (const x of inGrp) rows.push(irow('edit:base:' + sl + ':' + x.bi, x.nm, `${slotName(sl)} ・ 等級 ${S.lvl}`, '#6fb6ff'));
         }
       } else if (IST.tab === 'mat') {
         const cols = T.matCol();
@@ -393,6 +401,156 @@
     document.addEventListener('keydown', onItemKey, true);
   }
 
+
+  // ============ 裝備編輯器（選一件 → 改稀有度／品質／精煉／卡片槽／屬性 → 建立）============
+  // 這版（v6.x）裝備的屬性存在 bx=[{k,v}]、品質 q(%)、精煉 ref、卡片槽 cs/cards。
+  const IED = { on: false, kind: '', slot: '', bi: -1, uq: '', name: '', rar: 2, cs: -1, cap: 4, q: 100, ref: 0, bx: [], adding: false, pick: '' };
+  const RAR_LABEL = ['普通', '魔法', '稀有', '傳奇', '神話'];
+  const RAR_COLOR = ['#e8e8e8', '#6fb6ff', '#ffd84a', '#ff9a3c', '#3ce0ff'];
+
+  function baseNames(slot) {
+    try {
+      const B = typeof BASES !== 'undefined' ? BASES : null;
+      if (!B) return [];
+      if (slot === 'weapon') {
+        const cls = (typeof S !== 'undefined' && S && S.cls) || 'sword';
+        return (B.weapon && B.weapon[cls]) || [];
+      }
+      const l = B[slot];
+      return Array.isArray(l) ? l : [];
+    } catch (e) { return []; }
+  }
+  const slotCapOf = (it) => { try { return Math.max(0, Math.min(7, v5SlotCap(it) | 0)); } catch (e) { return 4; } };
+  const bxName = (k, v) => { try { return String(v5Line(k, v)); } catch (e) { return k + ' ' + v; } };
+  const bxKeys = () => { try { return Object.keys(V5_REF || {}); } catch (e) { return []; } };
+  const bxLabel = (k) => {
+    try {
+      const t = String(v5Line(k, 10));
+      return t.replace(/\s*[+\-]?[\d.]+%?\s*$/, '').trim() || k;
+    } catch (e) { return k; }
+  };
+
+  function buildEquip() {
+    const ilvl = Math.max(1, S.lvl | 0);
+    let it;
+    if (IED.kind === 'uq') it = makeItem(120, { uqk: IED.uq });
+    else {
+      const o = { slot: IED.slot };
+      if (IED.rar >= 0) o.rar = IED.rar;
+      it = makeItem(ilvl, o);
+      if (IED.bi >= 0) { try { setBase(it, IED.bi); } catch (e) {} }
+    }
+    if (!it) return null;
+    if (IED.q > 0) it.q = Math.round(IED.q);
+    it.ref = Math.max(0, IED.ref | 0);
+    if (IED.cs >= 0) {
+      const n = Math.max(0, Math.min(IED.cap, IED.cs));
+      it.cs = n;
+      it.cards = Array(n).fill(null);
+    }
+    it.bx = IED.bx.map((x) => ({ k: x.k, v: Math.round(x.v) }));
+    try { if (typeof v5Name === 'function') v5Name(it); } catch (e) {}
+    if (!it.name) it.name = it.base;
+    return it;
+  }
+
+  function numRow(label, attr, val, suffix, hint) {
+    return `<div class="row" style="margin:0 0 8px;flex-wrap:nowrap;align-items:center">` +
+      `<span class="note" style="flex:none;width:52px;margin:0">${label}</span>` +
+      `<input class="num" type="number" ${attr} value="${val}" style="width:84px;flex:none;font-size:14px;padding:6px 8px;${CTLFONT}">` +
+      `<span class="note" style="flex:none;margin:0 6px 0 4px">${suffix}</span>` +
+      `<span class="note" style="flex:1;margin:0;font-size:11px;text-align:right">${hint || ''}</span></div>`;
+  }
+
+  function editBody(hit) {
+    const rows = [];
+    const slot = IED.slot;
+    rows.push(`<div class="note" style="margin:0 0 10px"><b style="font-size:15px;color:#355978">${E(IED.name)}</b>　` +
+      `<span style="color:#7b8a98">${slotName(slot)} ・ 部位固定不可改</span></div>`);
+
+    if (IED.kind === 'uq') {
+      rows.push(`<div class="note" style="margin:0 0 8px;color:#ff5a82">獨特裝備（稀有度由裝備本身決定）</div>`);
+    } else {
+      rows.push(`<div class="note" style="margin:0 0 4px">稀有度</div><div class="seg" style="margin:0 0 10px;flex-wrap:wrap">`);
+      rows.push(`<button data-di-rar="-1" aria-pressed="${IED.rar < 0}" style="flex:1 0 auto;min-width:44px;font-size:13px;padding:7px 4px;${CTLFONT}">隨機</button>`);
+      for (let i = 0; i < RAR_LABEL.length; i++)
+        rows.push(`<button data-di-rar="${i}" aria-pressed="${IED.rar === i}" style="flex:1 0 auto;min-width:44px;font-size:13px;padding:7px 4px;${CTLFONT}color:${RAR_COLOR[i]}">${RAR_LABEL[i]}</button>`);
+      rows.push(`</div>`);
+    }
+
+    rows.push(numRow('品質', 'data-di-q="1"', Math.round(IED.q), '%', '50〜150'));
+    rows.push(numRow('精煉', 'data-di-ref="1"', IED.ref | 0, '+', '0〜20'));
+
+    rows.push(`<div class="note" style="margin:0 0 4px">卡片槽數 <span style="color:#9aa8b6">（這件最多 ${IED.cap}）</span></div><div class="seg" style="margin:0 0 10px;flex-wrap:wrap">`);
+    rows.push(`<button data-di-cs="-1" aria-pressed="${IED.cs < 0}" style="flex:1 0 auto;min-width:40px;font-size:13px;padding:7px 4px;${CTLFONT}">不指定</button>`);
+    for (let i = 0; i <= IED.cap; i++)
+      rows.push(`<button data-di-cs="${i}" aria-pressed="${IED.cs === i}" style="flex:1 0 auto;min-width:36px;font-size:13px;padding:7px 3px;${CTLFONT}">${i}</button>`);
+    rows.push(`</div>`);
+
+    if (IED.adding) {
+      rows.push(`<div class="note" style="margin:0 0 4px">選一個屬性加入</div>`);
+      rows.push(`<input class="txt" id="devAfQ" placeholder="搜尋屬性…" value="${E(IED.pick)}" style="width:100%;margin:0 0 6px;font-size:14px;padding:8px 10px;${CTLFONT}">`);
+      let n = 0;
+      for (const k of bxKeys()) {
+        if (IED.bx.some((x) => x.k === k)) continue;
+        const nm = bxLabel(k);
+        if (!hit(nm) && !hit(k)) continue;
+        n++;
+        rows.push(irow('afpick:' + k, nm, E(bxName(k, 10)), '#6fb6ff'));
+      }
+      if (!n) rows.push(`<p class="empty-note">沒有符合的屬性。</p>`);
+      return rows.join('');
+    }
+
+    rows.push(`<div class="note" style="margin:0 0 4px">屬性（可改數值、可刪）</div>`);
+    if (!IED.bx.length) rows.push(`<p class="empty-note" style="padding:8px 4px">還沒有屬性，按下面「＋ 新增屬性」。</p>`);
+    IED.bx.forEach((x, i) => {
+      rows.push(`<div style="display:flex;gap:6px;align-items:center;padding:5px 8px;margin:0 0 4px;background:#fff;border:1px solid #ccd8e2;border-radius:8px">` +
+        `<span style="flex:1;min-width:0;font-size:13px;${CTLFONT}">${E(bxLabel(x.k))}</span>` +
+        `<input class="num" type="number" data-di-bx="${i}" value="${Math.round(x.v)}" style="width:78px;flex:none;font-size:14px;padding:5px 6px;${CTLFONT}">` +
+        `<button data-di-bxdel="${i}" aria-label="刪除" style="flex:none;width:34px;height:34px;border-radius:8px;border:1px solid #d8b0b8;background:#fbeef0;color:#a03050;font-size:15px;cursor:pointer">✕</button>` +
+        `</div>`);
+    });
+    rows.push(`<div class="row" style="margin:6px 0 12px"><button data-di-afadd="1" class="btn" style="padding:9px 14px;font-size:13px;${CTLFONT}">＋ 新增屬性</button></div>`);
+    rows.push(`<div class="row" style="margin:0"><button data-di-build="1" class="btn primary" style="flex:1;padding:13px;font-size:15px;${CTLFONT}">放入背包（×${IST.qty}）</button></div>`);
+    return rows.join('');
+  }
+
+  function openEditor(key) {
+    let k = String(key);
+    if (k.indexOf('edit:') === 0) k = k.slice(5);
+    const p1 = k.indexOf(':');
+    const p2 = k.indexOf(':', p1 + 1);
+    const kind = k.slice(0, p1);
+    IED.adding = false; IED.pick = ''; IED.bx = []; IED.cs = -1; IED.rar = 2; IED.cap = 4; IED.q = 100; IED.ref = 0;
+    try {
+      if (kind === 'base') {
+        const slot = k.slice(p1 + 1, p2), bi = +k.slice(p2 + 1);
+        const nm = baseNames(slot)[bi];
+        if (!nm) return warn('找不到這件裝備');
+        IED.kind = 'base'; IED.slot = slot; IED.bi = bi; IED.name = nm; IED.rar = 2;
+        const probe = makeItem(Math.max(1, S.lvl | 0), { slot, rar: 2 });
+        setBase(probe, bi);
+        IED.cap = slotCapOf(probe);
+        IED.q = probe.q || 100; IED.ref = probe.ref || 0;
+        IED.bx = (probe.bx || []).map((x) => ({ k: x.k, v: x.v }));
+      } else if (kind === 'uq') {
+        const uq = k.slice(p1 + 1);
+        const d = T.uniq()[uq];
+        if (!d) return warn('找不到這件獨特裝備');
+        IED.kind = 'uq'; IED.uq = uq; IED.slot = d.slot; IED.name = d.n || uq; IED.rar = 3;
+        const probe = makeItem(120, { uqk: uq });
+        IED.cap = slotCapOf(probe);
+        IED.q = probe.q || 100; IED.ref = probe.ref || 0;
+        IED.bx = (probe.bx || []).map((x) => ({ k: x.k, v: x.v }));
+      } else return warn('未知的裝備類型');
+      IED.on = true;
+      paintCtl(); paintBody();
+      const box = document.getElementById('devItemBody');
+      if (box) box.scrollTop = 0;
+    } catch (e) { warn('開啟編輯失敗：' + e.message); }
+  }
+
   // 只重畫清單（保留搜尋框焦點與捲動位置）
   function paintBody() {
     const box = document.getElementById('devItemBody');
@@ -467,9 +625,46 @@
   }
 
   function itemClick(b) {
+    const edit = b.getAttribute('data-di-edit');
+    if (edit) return openEditor(edit);
+    const back = b.getAttribute('data-di-back');
+    if (back) { IED.on = false; IED.adding = false; IED.bx = []; paintCtl(); paintBody(); return; }
+    const rar = b.getAttribute('data-di-rar');
+    if (rar !== null) { IED.rar = +rar; paintBody(); return; }
+    const cs = b.getAttribute('data-di-cs');
+    if (cs !== null) { IED.cs = +cs; paintBody(); return; }
+    const afadd = b.getAttribute('data-di-afadd');
+    if (afadd) { IED.adding = true; IED.pick = ''; paintBody(); return; }
+    const bxdel = b.getAttribute('data-di-bxdel');
+    if (bxdel !== null) { IED.bx.splice(+bxdel, 1); paintBody(); return; }
+    const pick0 = b.getAttribute('data-di-add');
+    if (pick0 && pick0.indexOf('edit:') === 0) return openEditor(pick0);
+    if (pick0 && pick0.indexOf('afpick:') === 0) {
+      const k = pick0.slice(7);
+      IED.bx.push({ k, v: 10 });
+      IED.adding = false; IED.pick = '';
+      paintBody();
+      return;
+    }
+    const build = b.getAttribute('data-di-build');
+    if (build) {
+      let got = 0;
+      for (let i = 0; i < Math.max(1, IST.qty | 0); i++) {
+        if (S.bag.length >= BAG_MAX) { warn('背包已滿（' + BAG_MAX + '）'); break; }
+        const it = buildEquip();
+        if (!it) { warn('建立失敗'); break; }
+        S.bag.push(it); got++;
+      }
+      if (got) {
+        try { markDirty(); } catch (e) {}
+        try { toast('已放入背包：' + IED.name + ' ×' + got, 'lvl'); } catch (e) {}
+      }
+      return;
+    }
     const add = b.getAttribute('data-di-add');
     if (add) {
       const n = addItem(add, IST.qty);
+      if (n) { try { toast('已加入：' + add.replace(':', ' · ') + ' ×' + n, 'lvl'); } catch (e) {} }
       paintBody();
       return;
     }
@@ -539,12 +734,23 @@
 
     // 道具清單的搜尋框（只重畫清單，不動面板其他部分）
     document.addEventListener('input', (e) => {
-      if (e.target && e.target.id === 'devItemQ') { IST.q = e.target.value; paintBody(); }
+      if (e.target && e.target.id === 'devItemQ') { IST.q = e.target.value; paintBody(); return; }
+      if (e.target && e.target.id === 'devAfQ') { IED.pick = e.target.value; paintBody(); return; }
+      const tg = e.target;
+      if (!tg || !tg.getAttribute) return;
+      const bxi = tg.getAttribute('data-di-bx');
+      if (bxi !== null && bxi !== undefined) {
+        const i = +bxi, v = Number(tg.value);
+        if (IED.bx[i] && Number.isFinite(v)) IED.bx[i].v = v;
+        return;
+      }
+      if (tg.getAttribute('data-di-q')) { const v = Number(tg.value); if (Number.isFinite(v)) IED.q = Math.max(1, Math.min(999, v)); return; }
+      if (tg.getAttribute('data-di-ref')) { const v = Number(tg.value); if (Number.isFinite(v)) IED.ref = Math.max(0, Math.min(99, v)); return; }
     }, true);
 
     // 按鈕事件（用事件委派，不依賴遊戲的 data-act 路由）
     document.addEventListener('click', (e) => {
-      const di = e.target.closest && e.target.closest('[data-di-add],[data-di-tab],[data-di-qty],[data-di-set],[data-di-sub]');
+      const di = e.target.closest && e.target.closest('[data-di-add],[data-di-tab],[data-di-qty],[data-di-set],[data-di-sub],[data-di-edit],[data-di-rar],[data-di-cs],[data-di-afadd],[data-di-bxdel],[data-di-build],[data-di-back]');
       if (di) { e.preventDefault(); e.stopPropagation(); itemClick(di); return; }
       const b = e.target.closest && e.target.closest('[data-dev]');
       if (!b) return;
