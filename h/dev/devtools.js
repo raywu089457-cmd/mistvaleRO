@@ -245,34 +245,34 @@
   function irow(id, name, sub, col) {
     return `<button class="li" data-di-add="${E(id)}" style="appearance:none;font:inherit;text-align:left;padding:6px 8px;margin:0 0 4px">` +
       dotOf(col) +
-      `<span class="grow"><span class="t">${E(name)}</span>` +
+      `<span class="grow"><span class="t" style="font-size:13px">${E(name)}</span>` +
       (sub ? `<span class="s" style="font-size:11px;line-height:15px">${sub}</span>` : '') +
       `</span></button>`;
   }
 
   function itemCtrl() {
     let h = `<div class="seg" style="margin:0 0 6px;flex-wrap:wrap">` +
-      ITABS.map(([k, n]) => `<button data-di-tab="${k}" aria-pressed="${IST.tab === k}" style="flex:1 0 auto;min-width:44px">${n}</button>`).join('') +
+      ITABS.map(([k, n]) => `<button data-di-tab="${k}" aria-pressed="${IST.tab === k}" style="flex:1 0 auto;min-width:44px;font-size:13px;padding:7px 4px;font-family:system-ui,-apple-system,'PingFang TC','Noto Sans TC',sans-serif;">${n}</button>`).join('') +
       `</div>`;
     h += `<div class="row" style="margin:0 0 6px;flex-wrap:nowrap"><span class="note" style="flex:none">每次</span>` +
       `<div class="seg" style="flex:1">` +
-      QTY_OPTS.map((n) => `<button data-di-qty="${n}" aria-pressed="${IST.qty === n}">×${n}</button>`).join('') +
+      QTY_OPTS.map((n) => `<button data-di-qty="${n}" aria-pressed="${IST.qty === n}" style="font-size:13px;padding:7px 4px;font-family:system-ui,-apple-system,'PingFang TC','Noto Sans TC',sans-serif;">×${n}</button>`).join('') +
       `</div></div>`;
     if (IST.tab === 'equip') {
       const slots = [['', '隨機']].concat(T.slots().map((s) => [s, slotName(s)]));
       h += `<div class="row" style="margin:0 0 4px;flex-wrap:nowrap;align-items:flex-start"><span class="note" style="flex:none;width:28px">部位</span>` +
         `<div class="seg" style="flex:1;flex-wrap:wrap">` +
-        slots.map(([v, n]) => `<button data-di-set="slot" data-di-val="${v}" aria-pressed="${IST.slot === v}" style="flex:1 0 auto;min-width:44px">${n}</button>`).join('') +
+        slots.map(([v, n]) => `<button data-di-set="slot" data-di-val="${v}" aria-pressed="${IST.slot === v}" style="flex:1 0 auto;min-width:44px;font-size:13px;padding:6px 3px;font-family:system-ui,-apple-system,'PingFang TC','Noto Sans TC',sans-serif;">${n}</button>`).join('') +
         `</div></div>`;
       h += `<div class="row" style="margin:0 0 6px;flex-wrap:nowrap;align-items:flex-start"><span class="note" style="flex:none;width:28px">稀有</span>` +
         `<div class="seg" style="flex:1;flex-wrap:wrap">` +
-        RAR_OPT.map(([v, n]) => `<button data-di-set="rar" data-di-val="${v}" aria-pressed="${IST.rar === v}" style="flex:1 0 auto;min-width:40px">${n}</button>`).join('') +
+        RAR_OPT.map(([v, n]) => `<button data-di-set="rar" data-di-val="${v}" aria-pressed="${IST.rar === v}" style="flex:1 0 auto;min-width:40px;font-size:13px;padding:6px 3px;font-family:system-ui,-apple-system,'PingFang TC','Noto Sans TC',sans-serif;">${n}</button>`).join('') +
         `</div></div>`;
     }
     if (IST.tab === 'gem' || IST.tab === 'card') {
       h += `<p class="note" style="margin:0 0 6px">每次點一下加入 1 個。</p>`;
     }
-    h += `<input class="txt" id="devItemQ" placeholder="搜尋名稱…" value="${E(IST.q)}" style="width:100%;margin:0 0 6px">`;
+    h += `<input class="txt" id="devItemQ" placeholder="搜尋名稱…" value="${E(IST.q)}" style="width:100%;margin:0 0 6px;font-size:14px;padding:8px 10px;font-family:system-ui,-apple-system,'PingFang TC','Noto Sans TC',sans-serif;">`;
     return h;
   }
 
@@ -351,10 +351,46 @@
   const SCROLL_CSS = 'overflow-y:auto;overscroll-behavior:contain;padding:4px;border-radius:4px;' +
     'background:#3a22141a;box-shadow:inset 0 0 0 2px #3a221455';
 
+  // 面板上只放一顆入口按鈕，真正的操作介面開獨立彈窗（手機上原本塞在面板裡太小）
   function itemBlock() {
-    return `<h3 style="margin-top:12px">道具添加 <span class="note">點一下列＝加入</span></h3>` +
-      `<div class="board"><div id="devItemCtl">${itemCtrl()}</div>` +
-      `<div id="devItemBody" style="${SCROLL_CSS};max-height:${listH()}px">${itemBody()}</div></div>`;
+    return `<h3 style="margin-top:12px">道具添加</h3>` +
+      `<div class="board"><div class="row">` +
+      `<button class="btn primary" data-dev="itemOpen" style="padding:9px 16px;font-size:13px">🎁 開啟道具添加</button>` +
+      `</div><p class="note" style="margin:4px 0 0">會開一個獨立的全螢幕視窗：裝備／材料／寶石／卡片／資源，分頁＋搜尋，右上角 ✕ 關閉。</p></div>`;
+  }
+
+  // ---------- 獨立彈窗 ----------
+  let modalEl = null;
+  function onItemKey(e) {
+    if (e.key === 'Escape' || e.key === 'Esc') { e.stopPropagation(); closeItemModal(); }
+  }
+  function closeItemModal() {
+    document.removeEventListener('keydown', onItemKey, true);
+    if (modalEl) { try { modalEl.remove(); } catch (e) {} modalEl = null; }
+  }
+  function openItemModal() {
+    if (!need()) return warn('先進遊戲（建立角色）才能用');
+    closeItemModal();
+    const el = document.createElement('div');
+    el.id = 'devItemModal';
+    el.style.cssText = 'position:fixed;inset:0;z-index:2147482400;background:rgba(8,12,20,.72);display:flex;align-items:flex-end;justify-content:center';
+    el.innerHTML =
+      '<div style="width:min(100%,620px);height:100%;max-height:100%;display:flex;flex-direction:column;background:#f4f6f8;border-radius:14px 14px 0 0;box-shadow:0 -8px 30px #0009;overflow:hidden">' +
+      '<div style="flex:none;display:flex;align-items:center;gap:8px;padding:9px 10px 9px 14px;background:#fff;border-bottom:2px solid #ccd8e2;padding-top:calc(9px + env(safe-area-inset-top))">' +
+      '<b style="font-size:15px;color:#355978;letter-spacing:.04em">道具添加</b>' +
+      '<span class="note" style="flex:1;margin:0;font-size:11.5px">點一下列＝加入</span>' +
+      '<button id="devItemClose" aria-label="關閉" style="flex:none;width:42px;height:42px;border-radius:11px;border:1px solid #b7c8d8;background:#eef4fa;color:#355978;font-size:19px;line-height:1;cursor:pointer">✕</button>' +
+      '</div>' +
+      '<div style="flex:none;padding:10px 12px 0;overflow:hidden"><div id="devItemCtl">' + itemCtrl() + '</div></div>' +
+      '<div id="devItemBody" style="flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:2px 12px calc(16px + env(safe-area-inset-bottom));background:#3a221408"></div>' +
+      '</div>';
+    document.body.appendChild(el);
+    modalEl = el;
+    paintBody();
+    const x = el.querySelector('#devItemClose');
+    if (x) x.addEventListener('click', closeItemModal);
+    el.addEventListener('click', (e) => { if (e.target === el) closeItemModal(); });
+    document.addEventListener('keydown', onItemKey, true);
   }
 
   // 只重畫清單（保留搜尋框焦點與捲動位置）
@@ -516,6 +552,7 @@
       e.stopPropagation();
       const key = b.getAttribute('data-dev');
       if (key.startsWith('map:')) return jumpMap(Number(key.slice(4)));
+      if (key === 'itemOpen') return openItemModal();
       const fn = CMD[key];
       if (!fn) return warn('未實作：' + key);
       try { fn(); } catch (err) { warn('錯誤：' + err.message); }

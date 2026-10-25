@@ -139,9 +139,29 @@
   function setFull(on) {
     GX.full = !!on;
     document.body.classList.toggle('gx-full', GX.full);
+    syncExit();
     if (!on) { call(() => dropGhost()); ui.selGem = null; GX.prev = null; }
     const pn = document.querySelector('#panel'); if (pn) pn.scrollTop = 0;
     GX.revealed = null;
+  }
+  // 右上角固定 ✕：彈窗放大編輯時一定會看到，不用找「完成編輯」在哪，也不會卡在裡面出不來
+  function syncExit() {
+    let b = document.getElementById('gxExit');
+    if (!GX.full) { if (b) b.remove(); return; }
+    if (b) return;
+    b = document.createElement('button');
+    b.id = 'gxExit';
+    b.type = 'button';
+    b.setAttribute('aria-label', '關閉寶石盤編輯');
+    b.textContent = '✕';
+    const click = (e) => {
+      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+      setFull(false);
+      call(() => ui.render());
+    };
+    b.addEventListener('pointerdown', (e) => { e.stopPropagation(); }, true);
+    b.addEventListener('click', click, true);
+    document.body.appendChild(b);
   }
   setInterval(() => { if (GX.full && typeof ui !== 'undefined' && ui.tab !== 'skill') setFull(false); }, 300);
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && GX.full) { setFull(false); ui.render(); } });
@@ -423,6 +443,14 @@
 #panel .ro-gem-tools [data-act="rot"],#panel .ro-gem-tools [data-act="unplace"],#panel .ro-gem-tools [data-act="desel"]{display:none!important}
 #sgrid .gx-armed{filter:brightness(1.18) drop-shadow(0 4px 6px rgba(20,40,70,.35));transform:scale(1.04);transition:transform .08s}
 .gx-fullbar{display:flex;align-items:center;gap:8px;margin:0 0 8px}
+#gxExit{position:fixed;top:calc(6px + env(safe-area-inset-top,0px));right:8px;z-index:2147482600;
+  width:46px;height:46px;padding:0;border-radius:13px;border:1px solid #b7c8d8;background:#fff;color:#355978;
+  font:19px/1 var(--f-body,system-ui);cursor:pointer;box-shadow:0 3px 10px rgba(20,40,70,.28)}
+#gxExit:active{transform:translateY(1px)}
+body:not(.gx-full) #gxExit{display:none!important}
+/* 右上角有 ✕，讓「完成編輯」不要滑到它下面 */
+body.gx-full #panel .gx-fullbar{padding-right:60px!important}
+body.gx-full #panel .gx-fullbar .btn{min-height:42px;font-size:14px;padding:0 12px}
 .gx-fullbar.gx-open{justify-content:flex-end}
 .gx-fullbar .gx-sp{flex:1}
 .gx-fullbar .btn{min-height:40px;padding:0 14px;font-size:14px}
