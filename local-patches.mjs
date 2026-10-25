@@ -28,6 +28,7 @@ function writeText(f, { crlf, text }) {
 }
 
 const SFX_TAG = /<script src="(h\/[^"]+\/ro-sfx-data\.js)"><\/script>/;
+const RESCUE_TAG = '<script src="h/local/bootrescue.js"></script>';
 const sfxLoader = (src) =>
   `<script id="sfx-late">window.addEventListener("load",function(){setTimeout(function(){var s=document.createElement("script");s.src="${src}";document.body.appendChild(s)},800)})</script>`;
 
@@ -40,6 +41,11 @@ export function patchIndexHtml(html) {
   }
   const m = t.match(SFX_TAG);
   if (m) { t = t.replace(SFX_TAG, sfxLoader(m[1])); log('index.html：音效資料改成延後載入'); }
+  // 載入卡住的自救按鈕：要越早載入越好（卡住時才幫得上忙），插在 <body> 後第一行
+  if (!t.includes('h/local/bootrescue.js')) {
+    if (/<body>\n/.test(t)) { t = t.replace(/<body>\n/, '<body>\n' + RESCUE_TAG + '\n'); log('index.html：加入載入卡住自救按鈕'); }
+    else log('⚠ index.html 找不到 <body>，自救按鈕沒加');
+  }
   const tail = L('body-end.html').split('\n').filter((l) => l && !t.includes(l)).join('\n');
   if (tail) {
     const at = t.lastIndexOf('</body>');   // 用最後一個：前面的 inline 腳本字串裡也有 </body>
