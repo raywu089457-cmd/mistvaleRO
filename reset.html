@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>流浪仙境 · 清除快取</title>
+<style>
+  :root { color-scheme: dark }
+  * { box-sizing: border-box }
+  body {
+    margin: 0; padding: 20px 16px calc(28px + env(safe-area-inset-bottom));
+    background: radial-gradient(circle at 50% 0%, #141d31, #080b13 70%);
+    color: #dfe7ff; min-height: 100vh;
+    font: 15px/1.7 "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  }
+  .wrap { max-width: 440px; margin: 0 auto }
+  h1 { font-size: 20px; letter-spacing: .08em; color: #5ee0c8; margin: 0 0 4px }
+  .sub { font-size: 12px; color: #7f8db3; margin: 0 0 18px }
+  .card {
+    background: #0f1622; border: 1px solid #24334a; border-radius: 10px;
+    padding: 12px 14px; margin: 0 0 14px; font-size: 12.5px; line-height: 1.8;
+  }
+  .card b { color: #cfe3ff; font-weight: 400 }
+  .kv { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px dotted #1e2a3d }
+  .kv:last-child { border-bottom: 0 }
+  .kv span:first-child { color: #7f8db3; flex: none }
+  .kv span:last-child { text-align: right; word-break: break-all; color: #cfe3ff }
+  .ok { color: #7dffc8 } .warn { color: #ffb347 } .bad { color: #ff8a9a }
+  button {
+    display: block; width: 100%; padding: 13px 14px; margin: 0 0 6px;
+    font: inherit; font-size: 15px; border-radius: 10px; cursor: pointer;
+    border: 1px solid #3d5a7a; background: #1b2a3d; color: #cfe3ff;
+  }
+  button.primary { background: #17493f; border-color: #2c7f6c; color: #b9ffe9 }
+  button.danger { background: #3a1a22; border-color: #7a2e3e; color: #ffc0cb }
+  button:disabled { opacity: .5 }
+  .hint { font-size: 11.5px; color: #6b7b96; margin: 0 0 18px; line-height: 1.7 }
+  hr { border: 0; border-top: 1px dashed #24334a; margin: 20px 0 }
+  a { color: #6fd7ff }
+  #log { font: 11.5px/1.8 ui-monospace, monospace; color: #9fb0d6; white-space: pre-wrap; margin-top: 10px }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>清除快取 · 重來</h1>
+  <p class="sub">這一頁不會經過遊戲的快取，所以就算遊戲卡在載入畫面，它也打得開。</p>
+
+  <div class="card" id="status">檢查中…</div>
+
+  <button class="primary" id="b1">清除快取（保留存檔）</button>
+  <p class="hint">遊戲卡在載入畫面時先用這個。會解除 Service Worker、清掉所有離線快取；
+     <b>角色進度不會動</b>。清完會自動回遊戲（第一次會重新下載約 6 MB）。</p>
+
+  <hr>
+
+  <button class="danger" id="b2">全部清除（存檔也刪掉，從頭開始）</button>
+  <p class="hint">連本機角色存檔一起刪。只有確定存檔已經備份（例如存檔碼、雲端）才用這個。</p>
+
+  <div id="log"></div>
+  <p class="hint" style="margin-top:18px"><a href="./index.html" id="back">← 直接回遊戲</a></p>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var logEl = $('log');
+  function log(s) { logEl.textContent += s + '\n'; }
+
+  function lsKeys() {
+    var out = [];
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf('ro-wanderer') === 0) out.push(k);
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  function chars() {
+    try {
+      var r = JSON.parse(localStorage.getItem('ro-wanderer.v3.roster') || 'null');
+      return (r && r.list) || [];
+    } catch (e) { return []; }
+  }
+
+  async function swInfo() {
+    if (!('serviceWorker' in navigator)) return { n: 0 };
+    try {
+      var regs = await navigator.serviceWorker.getRegistrations();
+      return { n: regs.length, active: regs.filter(function (r) { return r.active; }).length };
+    } catch (e) { return { n: -1 }; }
+  }
+
+  async function cacheInfo() {
+    if (!window.caches) return { keys: [], n: 0, mb: 0 };
+    try {
+      var keys = await caches.keys(), n = 0, mb = 0;
+      for (var i = 0; i < keys.length; i++) {
+        var reqs = await (await caches.open(keys[i])).keys();
+        n += reqs.length;
+      }
+      return { keys: keys, n: n };
+    } catch (e) { return { keys: [], n: -1 }; }
+  }
+
+  async function render() {
+    var s = await swInfo(), c = await cacheInfo(), ks = lsKeys(), cs = chars();
+    var storeBytes = 0;
+    ks.forEach(function (k) { try { storeBytes += (localStorage.getItem(k) || '').length; } catch (e) {} });
+    var rows = [];
+    rows.push(['Service Worker', s.n < 0 ? '<span class="bad">讀不到</span>'
+      : s.n === 0 ? '<span class="ok">沒有（正常）</span>'
+      : '<span class="warn">' + s.n + ' 個（' + s.active + ' 個運作中）</span>']);
+    rows.push(['離線快取', c.n < 0 ? '<span class="bad">讀不到</span>'
+      : c.n === 0 ? '<span class="ok">空的</span>'
+      : '<span class="warn">' + c.keys.length + ' 個空間 / ' + c.n + ' 個檔案</span>']);
+    rows.push(['本機存檔', ks.length ? '<span class="ok">' + ks.length + ' 項 / ' + Math.round(storeBytes / 1024) + ' KB</span>'
+      : '<span class="bad">沒有</span>']);
+    if (cs.length) {
+      rows.push(['角色', cs.map(function (x) {
+        return (x.name || '?') + '（' + ({ sword: '劍士', bow: '弓手', mage: '法師', thief: '盜賊', acolyte: '服事', merchant: '商人' }[x.cls] || x.cls) + ' Lv' + (x.lvl || '?') + '）';
+      }).join('、')]);
+    } else {
+      rows.push(['角色', '<span class="bad">本機沒有角色資料</span>']);
+    }
+    $('status').innerHTML = rows.map(function (r) {
+      return '<div class="kv"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>';
+    }).join('');
+  }
+
+  async function wipeCaches() {
+    log('解除 Service Worker…');
+    try {
+      if ('serviceWorker' in navigator) {
+        var regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(function (r) { return r.unregister(); }));
+        log('  已解除 ' + regs.length + ' 個');
+      }
+    } catch (e) { log('  失敗：' + e.message); }
+    log('清除離線快取…');
+    try {
+      if (window.caches) {
+        var keys = await caches.keys();
+        await Promise.all(keys.map(function (k) { return caches.delete(k); }));
+        log('  已刪除 ' + keys.length + ' 個快取空間');
+      }
+    } catch (e) { log('  失敗：' + e.message); }
+  }
+
+  function go() {
+    var u = new URL('./index.html', location.href);
+    u.searchParams.set('r', Date.now().toString(36));
+    location.replace(u.toString());
+  }
+
+  $('b1').addEventListener('click', async function () {
+    $('b1').disabled = $('b2').disabled = true;
+    logEl.textContent = '';
+    await wipeCaches();
+    log('存檔保留，2 秒後回遊戲…');
+    setTimeout(go, 1200);
+  });
+
+  $('b2').addEventListener('click', async function () {
+    var cs = chars();
+    var who = cs.length ? cs.map(function (x) { return x.name + ' Lv' + x.lvl; }).join('、') : '（沒有角色）';
+    if (!confirm('要把本機存檔整個刪掉，從頭開始嗎？\n\n目前角色：' + who + '\n\n刪掉之後無法復原（除非你有存檔碼或雲端備份）。')) return;
+    if (!confirm('最後確認：真的要刪掉「' + who + '」的進度？')) return;
+    $('b1').disabled = $('b2').disabled = true;
+    logEl.textContent = '';
+    await wipeCaches();
+    log('刪除本機存檔…');
+    var ks = lsKeys(), n = 0;
+    ks.forEach(function (k) { try { localStorage.removeItem(k); n++; } catch (e) {} });
+    try { sessionStorage.clear(); } catch (e) {}
+    log('  已刪除 ' + n + ' 項');
+    log('完成，2 秒後回遊戲（會是全新的開始）…');
+    setTimeout(go, 1200);
+  });
+
+  $('back').addEventListener('click', function (e) { e.preventDefault(); go(); });
+
+  render();
+})();
+</script>
+</body>
+</html>
