@@ -298,17 +298,14 @@
         rows.push(`<div class="note" style="margin:10px 0 4px;font-weight:400;color:#8a3e14">✦ 獨特裝備（${uqRows.length}）</div>`);
         rows.push.apply(rows, uqRows);
         rows.push(`<div class="note" style="margin:14px 0 0;font-weight:400;color:#8a3e14">✦ 一般裝備（全部具名底座）</div>`);
-        const CL = T.classOf();
         for (const sl of T.slots()) {
           if (sl === 'weapon') {
-            // 武器依職業，所以六個職業的都要列出來（作者用 BASES.weapon[職業]）
-            for (const cid of Object.keys(CL)) {
-              const B = (typeof BASES !== 'undefined' && BASES.weapon && BASES.weapon[cid]) || [];
-              const inGrp = B.map((nm, bi) => ({ nm, bi })).filter((x) => hit(x.nm));
+            for (const g of weaponGroups()) {
+              const inGrp = g.names.map((nm, bi) => ({ nm, bi })).filter((x) => hit(x.nm));
               if (!inGrp.length) continue;
-              rows.push(`<div class="note" style="margin:8px 0 4px;font-weight:400;color:#5a6b7c">・武器（${CL[cid].n}）${cid === S.cls ? ' ← 本職' : ''}</div>`);
+              rows.push(`<div class="note" style="margin:8px 0 4px;font-weight:400;color:#5a6b7c">・${g.label}${g.cls === S.cls ? ' ← 本職' : ''}</div>`);
               for (const x of inGrp)
-                rows.push(irow('edit:base:weapon:' + x.bi + ':' + cid, x.nm, `${CL[cid].n} ・ 武器 ・ 等級 ${S.lvl}`, cid === S.cls ? '#6fb6ff' : '#9aa8b6'));
+                rows.push(irow('edit:base:weapon:' + g.key + ':' + x.bi, x.nm, `${g.label} ・ 等級 ${S.lvl}`, g.cls === S.cls ? '#6fb6ff' : '#9aa8b6'));
             }
             continue;
           }
@@ -428,17 +425,36 @@
   const RAR_LABEL = ['普通', '魔法', '稀有', '傳奇', '神話'];
   const RAR_COLOR = ['#e8e8e8', '#6fb6ff', '#ffd84a', '#ff9a3c', '#3ce0ff'];
 
+  // 真正的基底表：防具／飾品＝V5_BASES，武器＝RO_WB（ro_<職業>_<階>，每組 4 把）
   function baseNames(slot) {
     try {
-      const B = typeof BASES !== 'undefined' ? BASES : null;
+      const VB = typeof V5_BASES !== 'undefined' ? V5_BASES : null;
+      if (VB && Array.isArray(VB[slot])) return VB[slot].map((t) => t[0]);
+      const B = typeof BASES !== 'undefined' ? BASES : null;   // 舊版備援
       if (!B) return [];
-      if (slot === 'weapon') {
-        const cls = (typeof S !== 'undefined' && S && S.cls) || 'sword';
-        return (B.weapon && B.weapon[cls]) || [];
-      }
       const l = B[slot];
       return Array.isArray(l) ? l : [];
     } catch (e) { return []; }
+  }
+  // 武器分組：ro_sword_0 … ro_merchant_3，另有 ro_bow_4/5（舞孃線／流浪者線）
+  function weaponGroups() {
+    const out = [];
+    try {
+      const RW = typeof RO_WB !== 'undefined' ? RO_WB : {};
+      const CL = T.classOf();
+      for (const key of Object.keys(RW)) {
+        const m = /^ro_(.+)_(\d+)$/.exec(key);
+        if (!m) continue;
+        const cls = m[1], tier = +m[2];
+        const names = (RW[key] && RW[key][0]) || [];
+        let label = (CL[cls] && CL[cls].n) || cls;
+        if (cls === 'bow' && tier === 4) label = '弓箭手（舞孃線）';
+        else if (cls === 'bow' && tier === 5) label = '弓箭手（流浪者線）';
+        else label += ' 武器 ' + (tier + 1) + '階';
+        out.push({ key, cls, tier, names, label });
+      }
+    } catch (e) {}
+    return out;
   }
   const slotCapOf = (it) => { try { return Math.max(0, Math.min(7, v5SlotCap(it) | 0)); } catch (e) { return 4; } };
   const bxName = (k, v) => { try { return String(v5Line(k, v)); } catch (e) { return k + ' ' + v; } };
@@ -450,6 +466,37 @@
     } catch (e) { return k; }
   };
 
+  // 把一件武器換成指定基底（RO_WB 的 ro_<職業>_<階>，bi 0..3）
+  // 傷害要照那個職業的 WEAPON 表＋v5 的倍率重算，不然會拿到本職的數字
+  function applyWeaponGroup(it, group, bi, L2) {
+    try {
+      const RW = typeof RO_WB !== 'undefined' ? RO_WB[group] : null;
+      if (!it || !RW) return it;
+      const i = Math.min(3, Math.max(0, bi | 0));
+      const nm = RW[0][i];
+      it.roWb = group; it.bi = i; it.base = nm;
+      const cls = (String(group).split('_')[1]) || S.cls;
+      const W = (typeof WEAPON !== 'undefined' && (WEAPON[cls] || WEAPON[S.cls])) || null;
+      if (!W) return it;
+      const wex = (typeof V5_WEX !== 'undefined' && V5_WEX[group]) || null;
+      const h2 = wex ? wex[0] : 0;
+      const q = (it.q || 100) / 100;
+      const base = W.a + W.k * (L2 || it.ilvl || 1);
+      const m = (typeof V5_WK === 'function' ? V5_WK(L2 || it.ilvl || 1) : 1)
+        * (h2 ? (typeof V5_H2 === 'number' ? V5_H2 : 1.25) : 1) * q;
+      it.h2 = h2 ? 1 : 0;
+      it.wd = [
+        Math.max(1, Math.round(0.75 * base * m)),
+        Math.max(2, Math.round(1.25 * base * m)),
+        +((W.aps) * (typeof V5_WAPS === 'number' ? V5_WAPS : 1.1)).toFixed(2),
+        W.c,
+      ];
+      it.v5aps = 1;
+      if (it.name) it.name = nm;
+    } catch (e) {}
+    return it;
+  }
+
   function buildEquip() {
     const ilvl = Math.max(1, S.lvl | 0);
     let it;
@@ -458,20 +505,12 @@
       const o = { slot: IED.slot };
       if (IED.rar >= 0) o.rar = IED.rar;
       it = makeItem(ilvl, o);
-      if (IED.bi >= 0) { try { setBase(it, IED.bi); } catch (e) {} }
-      // 跨職業武器：基底名稱與傷害要用那個職業的 WEAPON 表
-      if (IED.slot === 'weapon' && IED.wcls && IED.wcls !== S.cls) {
-        const nm = ((typeof BASES !== 'undefined' && BASES.weapon && BASES.weapon[IED.wcls]) || [])[IED.bi];
-        if (nm) it.base = nm;
-        const W = (typeof WEAPON !== 'undefined' && WEAPON[IED.wcls]) || null;
-        if (W && it.wd) {
-          const base = W.a + W.k * it.ilvl;
-          it.wd = [Math.max(1, Math.round(0.75 * base)), Math.max(2, Math.round(1.25 * base)), W.aps, W.c];
-        }
-      }
+      if (IED.slot === 'weapon' && IED.wgroup) applyWeaponGroup(it, IED.wgroup, IED.bi, ilvl);
+      else if (IED.bi >= 0) { try { setBase(it, IED.bi); } catch (e) {} }
     }
     if (!it) return null;
     if (IED.q > 0) it.q = Math.round(IED.q);
+    if (IED.slot === 'weapon' && IED.wgroup) applyWeaponGroup(it, IED.wgroup, IED.bi, ilvl);  // 品質會影響傷害，所以重算一次
     it.ref = Math.max(0, IED.ref | 0);
     if (IED.cs >= 0) {
       const n = Math.max(0, Math.min(IED.cap, IED.cs));
@@ -496,7 +535,7 @@
     const rows = [];
     const slot = IED.slot;
     rows.push(`<div class="note" style="margin:0 0 10px"><b style="font-size:15px;color:#355978">${E(IED.name)}</b>　` +
-      `<span style="color:#7b8a98">${slotName(slot)}${IED.wcls ? '（' + ((T.classOf()[IED.wcls] || {}).n || IED.wcls) + '）' : ''} ・ 部位固定不可改</span></div>`);
+      `<span style="color:#7b8a98">${slotName(slot)}${IED.wgroup ? '（' + (((weaponGroups().find((g) => g.key === IED.wgroup) || {}).label) || IED.wgroup) + '）' : ''} ・ 部位固定不可改</span></div>`);
 
     if (IED.kind === 'uq') {
       rows.push(`<div class="note" style="margin:0 0 8px;color:#ff5a82">獨特裝備（稀有度由裝備本身決定）</div>`);
@@ -552,19 +591,25 @@
     const p1 = k.indexOf(':');
     const p2 = k.indexOf(':', p1 + 1);
     const kind = k.slice(0, p1);
-    IED.adding = false; IED.pick = ''; IED.bx = []; IED.cs = -1; IED.rar = 2; IED.cap = 4; IED.q = 100; IED.ref = 0; IED.wcls = '';
+    IED.adding = false; IED.pick = ''; IED.bx = []; IED.cs = -1; IED.rar = 2; IED.cap = 4; IED.q = 100; IED.ref = 0; IED.wcls = ''; IED.wgroup = '';
     try {
       if (kind === 'base') {
         const rest = k.slice(p1 + 1).split(':');
-        const slot = rest[0], bi = +rest[1], wcls = rest[2] || '';
-        const B = (slot === 'weapon' && wcls)
-          ? ((typeof BASES !== 'undefined' && BASES.weapon && BASES.weapon[wcls]) || [])
-          : baseNames(slot);
-        const nm = B[bi];
+        const slot = rest[0], arg = rest[1] || '', bi = +(rest[2] || 0);
+        let nm = '';
+        if (slot === 'weapon') {
+          const RW = (typeof RO_WB !== 'undefined' && RO_WB[arg]) || null;
+          nm = RW ? RW[0][Math.min(3, bi)] : '';
+          IED.wgroup = arg;
+        } else {
+          nm = baseNames(slot)[+arg] || '';
+          IED.wgroup = '';
+        }
         if (!nm) return warn('找不到這件裝備');
-        IED.kind = 'base'; IED.slot = slot; IED.bi = bi; IED.name = nm; IED.rar = 2; IED.wcls = wcls;
+        IED.kind = 'base'; IED.slot = slot; IED.bi = bi; IED.name = nm; IED.rar = 2; IED.wcls = '';
         const probe = makeItem(Math.max(1, S.lvl | 0), { slot, rar: 2 });
-        setBase(probe, bi);
+        if (slot === 'weapon' && IED.wgroup) applyWeaponGroup(probe, IED.wgroup, bi, Math.max(1, S.lvl | 0));
+        else setBase(probe, bi);
         IED.cap = slotCapOf(probe);
         IED.q = probe.q || 100; IED.ref = probe.ref || 0;
         IED.bx = (probe.bx || []).map((x) => ({ k: x.k, v: x.v }));
