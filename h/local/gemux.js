@@ -3,8 +3,10 @@
  * 1. 寶石托盤 → 固定在面板底部的「寶石列」（橫向捲動），格子跟寶石永遠同時看得到
  * 2. 點托盤寶石 = 先看說明卡（名稱／主動輔助／標籤／冷卻／完整說明），按「放入格子」才放
  *    （原本點一下會直接「拿起」浮在格子上，看不到說明）；要拖曳也可以，往上拖到格子即可
- * 3. 點格子裡的寶石 → 說明卡顯示連動狀況，大按鈕：旋轉／取下／完成
- * 4. 放不下（紅色）時，說明卡直接告訴你，並給旋轉／放回
+ * 3. 點格子裡的寶石 → 說明卡顯示連動狀況，一排大按鈕：← ↑ ↓ → 移一格、↻ 原地旋轉（繞中心）、取下、完成
+ *    點空格 = 方塊（以中心）移過去，而且保持選取，可以連續微調
+ * 4. 放入前可以先在預覽卡選方向；拖曳時方塊浮在手指上方，不會被手指擋住
+ * 5. 放不下（紅色）時，說明卡直接告訴你，並給旋轉／放回
  *
  * 所有動作都走遊戲原本的 onPanelClick（data-act="gem/rot/unplace/desel"），不自己改存檔資料。
  * 關閉：localStorage.setItem('gx.off','1') 後重新整理。
@@ -34,6 +36,55 @@
     finally { b.remove(); }
   }
 
+  // ---------- 方塊幾何：以「方塊中心」為準，而不是左上角的錨點 ----------
+  const centerOf = (cs) => [cs.reduce((s, c) => s + c[0], 0) / cs.length, cs.reduce((s, c) => s + c[1], 0) / cs.length];
+  // 找一個放得下、而且中心最接近 (cx,cy) 的位置；cover = 必須蓋住的格子
+  function fitNear(g, rot, cx, cy, cover, radius = 3) {
+    const c0 = centerOf(gemCells(g, 0, 0, rot));
+    const bx = Math.round(cx - c0[0]), by = Math.round(cy - c0[1]);
+    let best = null, bd = Infinity;
+    for (let dy = -radius; dy <= radius; dy++)
+      for (let dx = -radius; dx <= radius; dx++) {
+        const x = bx + dx, y = by + dy;
+        if (!canPlace(g, x, y, rot)) continue;
+        const cs = gemCells(g, x, y, rot);
+        if (cover && !cs.some(([a, b]) => a === cover[0] && b === cover[1])) continue;
+        const c = centerOf(cs), d = (c[0] - cx) ** 2 + (c[1] - cy) ** 2;
+        if (d < bd) (bd = d), (best = { x, y, rot });
+      }
+    return best;
+  }
+  const say = (m, bad) => call(() => toast(m, bad ? 'bad' : ''));
+  function put(g, s) { placeGem(g, s.x, s.y, s.rot); ui.selGem = g.u; GX.prev = null; ui.render(); }
+
+  // 旋轉：繞方塊中心轉，原地放不下就找最近的空位
+  function rotatePlaced(g) {
+    const r = (g.rot + 1) % 4, [cx, cy] = centerOf(gemCells(g));
+    const s = fitNear(g, r, cx, cy, null, 2);
+    s ? put(g, s) : say('轉過來會撞到別的寶石，先移到空一點的地方再轉', 1);
+  }
+  // 方向鍵：往那個方向移一格；擋住就跳過去找下一個空位
+  function nudge(g, dx, dy) {
+    for (let k = 1; k <= 5; k++) if (canPlace(g, g.x + dx * k, g.y + dy * k, g.rot)) return put(g, { x: g.x + dx * k, y: g.y + dy * k, rot: g.rot });
+    say('那個方向沒有空位', 1);
+  }
+  // 放入格子：用預覽選好的方向，找第一個放得下的位置
+  function autoPut(g, rot) {
+    for (const k of UNLOCK_ORDER) {
+      const [x, y] = k.split(',').map(Number);
+      if (canPlace(g, x, y, rot)) return put(g, { x, y, rot });
+    }
+    for (let r = 0; r < 4; r++) if (r !== rot) for (const k of UNLOCK_ORDER) {
+      const [x, y] = k.split(',').map(Number);
+      if (canPlace(g, x, y, r)) { say('這個方向放不下，已換個方向放入'); return put(g, { x, y, rot: r }); }
+    }
+    say('沒有放得下這個形狀的空位：先取下或移開其他寶石', 1);
+  }
+  function shapeSvg(g, rot, cell) {
+    const a = call(() => gemArt(g.id, rot, 5, g.sh, g.sx));
+    return a ? `<span class="gx-shape" style="width:${a.W * cell / 5}px;height:${a.H * cell / 5}px">${a.svg}</span>` : '';
+  }
+
   // ---------- 說明卡 ----------
   function linkInfo(g) {
     const sk = SKILLS[g.id];
@@ -51,19 +102,24 @@
   function cardHtml(g, mode) {
     const sk = SKILLS[g.id];
     const meta = [sk.act ? '主動' : '輔助', tagsOf(sk), sk.act && sk.cd && !sk.sus ? `冷卻 ${sk.cd} 秒` : ''].filter(Boolean).join('・');
-    let acts = '', hint = '', warn = '';
+    let acts = '', hint = '', warn = '', side = '';
     if (mode === 'preview') {
+      const r = GX.prot || 0;
+      side = `<button class="gx-shapebox" data-gx="prot" aria-label="轉向">${shapeSvg(g, r, 13)}<span>↻ 轉向</span></button>`;
       acts = `<button class="btn primary gx-big" data-gx="auto" data-u="${g.u}">放入格子</button><button class="btn gx-big" data-gx="close">返回</button>`;
-      hint = '也可以按住寶石往上拖到格子裡';
+      hint = '點左邊的形狀＝轉向；按住形狀往上拖＝直接放到想要的格子';
     } else if (mode === 'ghost') {
       warn = '<p class="gx-bad">⚠ 紅色＝放不下：拖到空位、點空格或旋轉</p>';
       acts = '<button class="btn gx-big" data-act="rot">↻ 旋轉</button><button class="btn gx-big" data-act="desel">放回</button>';
     } else {
-      acts = '<button class="btn gx-big" data-act="rot">↻ 旋轉</button><button class="btn gx-big" data-act="unplace">取下</button><button class="btn primary gx-big" data-act="desel">完成</button>';
-      hint = '點空格＝移到那裡；按住拖曳也可以；點別顆寶石切換';
+      acts = `<button class="btn gx-ico" data-gx="mv" data-d="l" aria-label="左移">←</button><button class="btn gx-ico" data-gx="mv" data-d="u" aria-label="上移">↑</button>` +
+        `<button class="btn gx-ico" data-gx="mv" data-d="d" aria-label="下移">↓</button><button class="btn gx-ico" data-gx="mv" data-d="r" aria-label="右移">→</button>` +
+        `<button class="btn gx-ico" data-gx="rot" aria-label="旋轉">↻</button><button class="btn gx-ico gx-txt" data-act="unplace">取下</button>` +
+        `<button class="btn primary gx-ico gx-txt" data-act="desel">完成</button>`;
+      hint = '方向鍵移一格・↻ 原地旋轉・點空格直接移過去・也可以按住拖曳';
     }
     return `<div class="gx-card" data-mode="${mode}">
-      <div class="gx-head"><img src="${iconOf(g.id)}" alt=""><div class="gx-tt"><b>${esc2(nameOf(g))}</b><small>${esc2(meta)}</small></div></div>
+      <div class="gx-head">${side || `<img src="${iconOf(g.id)}" alt="">`}<div class="gx-tt"><b>${esc2(nameOf(g))}</b><small>${esc2(meta)}</small></div></div>
       <p class="gx-desc">${esc2(sk.d)}</p>${warn}${mode === 'placed' ? linkInfo(g) : ''}
       <div class="gx-acts">${acts}</div>${hint ? `<p class="gx-hint">${hint}</p>` : ''}
     </div>`;
@@ -76,6 +132,22 @@
     if (pv && pv.x < 0) return cardHtml(pv, 'preview');
     GX.prev = null;
     return '';
+  }
+
+  // 選取的方塊如果被底部說明卡蓋住，把面板捲到剛好看得到（只在選取／位置改變時做，不跟玩家的捲動打架）
+  function revealSel() {
+    const g = gemBy(ui.selGem), gh = ui.ghost && ui.ghost.u === (g && g.u) ? ui.ghost : null;
+    if (!g || (g.x < 0 && !gh)) return;
+    const key = [g.u, gh ? gh.x : g.x, gh ? gh.y : g.y, gh ? gh.rot : g.rot].join();
+    if (GX.revealed === key) return;
+    GX.revealed = key;
+    const cs = gh ? gemCells(g, gh.x, gh.y, gh.rot) : gemCells(g), btns = document.querySelectorAll('#sgrid button');
+    const dock = document.querySelector('.gx-dock'), panel = document.querySelector('#panel');
+    if (!dock || !panel || !btns.length) return;
+    const bottom = Math.max(...cs.map(([x, y]) => btns[6 * y + x]?.getBoundingClientRect().bottom || 0));
+    const top = Math.min(...cs.map(([x, y]) => btns[6 * y + x]?.getBoundingClientRect().top || 1e9));
+    const over = bottom + 8 - dock.getBoundingClientRect().top, room = top - panel.getBoundingClientRect().top - 4;
+    if (over > 0) panel.scrollTop += Math.min(over, Math.max(0, room));
   }
 
   // ---------- 重組技能面板 HTML ----------
@@ -91,10 +163,12 @@
         if (z < 0) z = html.lastIndexOf('</section>');
         if (z < 0) return html;
         const card = currentCard();
+        if (card) setTimeout(revealSel, 0);
         return html.slice(0, a) + `<div class="gx-dock${card ? ' gx-has-card' : ''}">${card}${html.slice(a, z)}</div>` + html.slice(z);
       } catch (e) { return html; }
     };
     ui.p_skill.__gx = true;
+    wrapDrag();
     try { if (ui.tab === 'skill') ui.render(); } catch (e) {}
     return true;
   }
@@ -125,12 +199,13 @@
   // 往上／斜上拖 = 交給遊戲原本的拖曳放進格子。
   window.addEventListener('pointermove', (e) => {
     const p = GX.press;
+    if (p && !p.tray && p.id === e.pointerId && Math.hypot(e.clientX - p.x, e.clientY - p.y) >= 5) GX.dragU = p.u;
     if (!p || !p.tray || p.id !== e.pointerId || p.mode === 'drag') return;
     const dx = e.clientX - p.x, dy = e.clientY - p.y;
     if (!p.mode) {
       if (Math.hypot(dx, dy) < 5) return;
       p.mode = Math.abs(dx) > Math.abs(dy) * 1.2 ? 'scroll' : 'drag';
-      if (p.mode === 'drag') return;
+      if (p.mode === 'drag') { GX.dragRot = p.u === GX.prev ? GX.prot || 0 : 0; GX.dragU = p.u; return; }
     }
     e.stopImmediatePropagation();
     const tr = document.querySelector('#tray');
@@ -146,12 +221,14 @@
       GX.eatClick = performance.now();
       return;
     }
+    if (p.shape && Math.hypot(e.clientX - p.x, e.clientY - p.y) < 5) { e.stopImmediatePropagation(); call(() => dragStop(false)); return; }
     if (p.mode === 'drag' || Math.hypot(e.clientX - p.x, e.clientY - p.y) >= 5) return;
     e.stopImmediatePropagation();          // 不讓遊戲進入「拿起」模式
     call(() => dragStop(false));            // 清掉 pointerdown 留下的待命拖曳
     if (p.tray) {
       call(() => dropGhost());
       ui.selGem = null;
+      if (GX.prev !== p.u) GX.prot = 0;
       GX.prev = p.u;
     } else {
       if (ui.ghost && ui.ghost.u !== p.u) call(() => dropGhost());
@@ -170,6 +247,7 @@
       e.stopImmediatePropagation(); e.preventDefault();
       call(() => dropGhost());
       ui.selGem = null;
+      if (GX.prev !== +tg.dataset.u) GX.prot = 0;
       GX.prev = +tg.dataset.u;
       ui.render();
       return;
@@ -177,9 +255,75 @@
     const b = e.target.closest && e.target.closest('[data-gx]');
     if (!b) return;
     e.stopImmediatePropagation(); e.preventDefault();
-    const k = b.dataset.gx;
+    const k = b.dataset.gx, sel = gemBy(ui.selGem);
     if (k === 'close') { GX.prev = null; ui.render(); }
-    else if (k === 'auto') { GX.prev = null; engineAct('gem', b.dataset.u); }
+    else if (k === 'prot') { GX.prot = ((GX.prot || 0) + 1) % 4; ui.render(); }
+    else if (k === 'auto') { const g = gemBy(b.dataset.u); if (g) autoPut(g, GX.prot || 0); }
+    else if (k === 'rot' && sel && sel.x >= 0) rotatePlaced(sel);
+    else if (k === 'mv' && sel && sel.x >= 0) nudge(sel, ...({ l: [-1, 0], r: [1, 0], u: [0, -1], d: [0, 1] }[b.dataset.d]));
+  }, true);
+
+  // ---------- 點空格：把選取的方塊移過去（以方塊中心對準點的格子，並保持選取）----------
+  window.addEventListener('click', (e) => {
+    const c = e.target.closest && e.target.closest('#sgrid button');
+    const g = c && gemBy(ui.selGem);
+    if (!g || g.x < 0 || (ui.ghost && ui.ghost.u === g.u) || gemAtCell(c)) return;   // 只處理「已放好的方塊 → 點空格」
+    const x = +c.dataset.x, y = +c.dataset.y;
+    if (!call(() => openSet().has(x + ',' + y))) return;
+    e.stopImmediatePropagation(); e.preventDefault();
+    const s = fitNear(g, g.rot, x, y, [x, y]) || [1, 2, 3].map((d) => fitNear(g, (g.rot + d) % 4, x, y, [x, y])).find(Boolean);
+    s ? put(g, s) : say('那裡放不下這個形狀', 1);
+  }, true);
+
+  // ---------- 拖曳：方塊浮在手指上方，不會被手指擋住 ----------
+  // 遊戲把拖曳中的方塊畫在手指正下方，落點也是手指下的格子 → 手機上完全看不到要放哪。
+  // 觸控拖曳時把「落點判定」和「方塊圖」一起往上移約 1.3 格（剛開始拖時逐漸拉開，避免方塊一按就跳）。
+  const cellPx = () => { const b = document.querySelector('#sgrid button'); return b ? b.getBoundingClientRect().width : 40; };
+  const lift = () => (GX.touch ? Math.min(cellPx() * 1.3, (GX.dist || 0) * 0.8) : 0);
+  window.addEventListener('pointerdown', (e) => { GX.touch = e.pointerType === 'touch' || e.pointerType === 'pen'; GX.p0 = [e.clientX, e.clientY]; GX.dist = 0; }, true);
+  window.addEventListener('pointermove', (e) => { if (GX.p0) GX.dist = Math.max(GX.dist || 0, Math.hypot(e.clientX - GX.p0[0], e.clientY - GX.p0[1])); }, true);
+  window.addEventListener('pointerup', () => { GX.p0 = null; }, true);
+  function wrapDrag() {
+    if (typeof dragCellAt !== 'function' || dragCellAt.__gx) return;
+    const cellAt = dragCellAt, paint = dragPaint, start = dragStart;
+    window.dragCellAt = function (x, y) { return cellAt.call(this, x, y - lift()); };
+    window.dragCellAt.__gx = true;
+    window.dragPaint = function (...a) {
+      const r = paint.apply(this, a), f = document.getElementById('dragGem'), L = lift();
+      if (f && L) f.style.transform = f.style.transform.replace(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/, (m, x, y) => `translate(${x}px,${+y - L}px)`);
+      return r;
+    };
+    // 從預覽卡拖出去時，套用預覽選好的方向
+    window.dragStart = function (...a) {
+      const r = start.apply(this, a), n = GX.dragRot || 0;
+      GX.dragRot = 0;
+      for (let i = 0; i < n; i++) call(() => dragRotate());
+      return r;
+    };
+    // 放下之後保持選取那顆，方便馬上用方向鍵／旋轉微調
+    const stop = dragStop;
+    window.dragStop = function (ok, ...a) {
+      const u = GX.dragU;
+      GX.dragU = null;
+      const r = stop.call(this, ok, ...a), g = u != null && gemBy(u);
+      if (ok && g && g.x >= 0 && !ui.ghost) { ui.selGem = g.u; GX.prev = null; ui.render(); }
+      return r;
+    };
+  }
+
+  // 預覽卡左邊的形狀：點一下＝轉向；按住往上拖＝用這個方向拖進格子
+  window.addEventListener('pointerdown', (e) => {
+    const box = e.target.closest && e.target.closest('.gx-shapebox');
+    const g = box && gemBy(GX.prev);
+    if (!g || e.button > 0) return;
+    const chip = document.querySelector(`#tray [data-act="gem"][data-u="${g.u}"]`);
+    if (!chip) return;
+    // 讓遊戲以為是從托盤那顆寶石按下去（托盤在卡片模式下只是隱藏），之後的移動照常由遊戲處理
+    chip.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: e.pointerId, pointerType: e.pointerType,
+      isPrimary: true, button: 0, buttons: 1, clientX: e.clientX, clientY: e.clientY }));
+    GX.press = { id: e.pointerId, x: e.clientX, y: e.clientY, u: g.u, tray: true, mode: 'drag', shape: true };
+    GX.dragRot = GX.prot || 0;
+    GX.dragU = g.u;
   }, true);
 
   // ---------- 樣式 ----------
@@ -205,19 +349,25 @@
 #panel .gx-dock #tray .gem[aria-pressed="true"]{outline:2px solid #5aa0e0}
 #panel .gx-dock.gx-has-card > :not(.gx-card),#panel .gx-dock.gx-has-card > #tray{display:none!important}
 #panel .ro-gem-tools [data-act="rot"],#panel .ro-gem-tools [data-act="unplace"],#panel .ro-gem-tools [data-act="desel"]{display:none!important}
-.gx-card{font-size:14px;line-height:1.55}
-.gx-card .gx-head{display:flex;gap:10px;align-items:center;margin-bottom:4px}
-.gx-card .gx-head img{width:40px;height:40px;image-rendering:pixelated;flex:none}
+.gx-card{font-size:13px;line-height:1.45}
+.gx-card .gx-head{display:flex;gap:10px;align-items:center;margin-bottom:2px}
+.gx-card .gx-head img{width:34px;height:34px;image-rendering:pixelated;flex:none}
 .gx-card .gx-tt{display:flex;flex-direction:column;min-width:0}
 .gx-card .gx-tt b{font-size:16px}
 .gx-card .gx-tt small{color:var(--muted,#6b7f95);font-size:12px}
-.gx-card p{margin:4px 0}
-.gx-card .gx-desc{background:rgba(255,255,255,.6);border-radius:8px;padding:6px 8px}
+.gx-card p{margin:3px 0}
+.gx-card .gx-desc{background:rgba(255,255,255,.6);border-radius:8px;padding:4px 8px}
 .gx-card .gx-ok{color:#2c8a55;font-size:13px}
 .gx-card .gx-bad{color:#b4443c;font-size:13px}
-.gx-card .gx-mute,.gx-card .gx-hint{color:var(--muted,#6b7f95);font-size:12px}
-.gx-card .gx-acts{display:flex;gap:8px;margin-top:8px}
+.gx-card .gx-mute,.gx-card .gx-hint{color:var(--muted,#6b7f95);font-size:11.5px}
+.gx-card .gx-acts{display:flex;gap:6px;margin-top:6px}
 .gx-card .gx-big{flex:1;min-height:44px;font-size:15px}
+.gx-card .gx-acts .gx-ico{flex:1 1 0;min-width:0;min-height:46px;padding:0!important;font-size:22px;line-height:1}
+.gx-card .gx-acts .gx-ico.gx-txt{flex:1.4 1 0;font-size:14px}
+.gx-card .gx-shapebox{touch-action:none;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:64px;min-height:64px;
+  padding:4px;border:1px dashed rgba(90,120,150,.5);border-radius:8px;background:rgba(255,255,255,.7);cursor:pointer;font:12px/1.2 inherit;color:#456}
+.gx-card .gx-shape{display:block}
+.gx-card .gx-shape svg{width:100%;height:100%;display:block}
 `;
   document.head.appendChild(st);
 
