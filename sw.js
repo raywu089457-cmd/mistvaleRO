@@ -5,7 +5,7 @@
  *
  * 版本規則：改版時把 CACHE 的版號 +1（update.mjs 會自動做）。
  */
-const CACHE = 'xianjingro-v5-gemux3';
+const CACHE = 'xianjingro-v6-gemfull';
 const RUNTIME = CACHE + '-rt';
 const HTML_TIMEOUT = 8000;
 

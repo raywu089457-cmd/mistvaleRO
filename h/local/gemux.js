@@ -135,6 +135,17 @@
     return '';
   }
 
+  // ---------- 彈出式放大編輯：整個畫面只放格子＋寶石列／說明卡 ----------
+  function setFull(on) {
+    GX.full = !!on;
+    document.body.classList.toggle('gx-full', GX.full);
+    if (!on) { call(() => dropGhost()); ui.selGem = null; GX.prev = null; }
+    const pn = document.querySelector('#panel'); if (pn) pn.scrollTop = 0;
+    GX.revealed = null;
+  }
+  setInterval(() => { if (GX.full && typeof ui !== 'undefined' && ui.tab !== 'skill') setFull(false); }, 300);
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && GX.full) { setFull(false); ui.render(); } });
+
   // 選取的方塊如果被底部說明卡蓋住，把面板捲到剛好看得到（只在選取／位置改變時做，不跟玩家的捲動打架）
   function revealSel() {
     const g = gemBy(ui.selGem), gh = ui.ghost && ui.ghost.u === (g && g.u) ? ui.ghost : null;
@@ -164,8 +175,15 @@
         if (z < 0) z = html.lastIndexOf('</section>');
         if (z < 0) return html;
         const card = currentCard();
+        if (card && !GX.full && innerWidth < 760) setFull(true);   // 手機：一開始操作寶石就彈出放大的編輯視窗
         if (card) setTimeout(revealSel, 0);
-        return html.slice(0, a) + `<div class="gx-dock${card ? ' gx-has-card' : ''}">${card}${html.slice(a, z)}</div>` + html.slice(z);
+        const bar = GX.full
+          ? '<div class="gx-fullbar"><b>寶石盤編輯</b><span class="gx-sp"></span><button class="btn primary" data-gx="full0">✓ 完成編輯</button></div>'
+          : '<div class="gx-fullbar gx-open"><button class="btn" data-gx="full1">⛶ 放大編輯</button></div>';
+        let out = html.slice(0, a) + `<div class="gx-dock${card ? ' gx-has-card' : ''}">${card}${html.slice(a, z)}</div>` + html.slice(z);
+        const w = out.indexOf('<div class="gridWrap">');
+        if (w >= 0) out = out.slice(0, w) + bar + out.slice(w);
+        return out;
       } catch (e) { return html; }
     };
     ui.p_skill.__gx = true;
@@ -284,7 +302,9 @@
     if (!b) return;
     e.stopImmediatePropagation(); e.preventDefault();
     const k = b.dataset.gx, sel = gemBy(ui.selGem);
-    if (k === 'close') { GX.prev = null; ui.render(); }
+    if (k === 'full1') { setFull(true); ui.render(); }
+    else if (k === 'full0') { setFull(false); ui.render(); }
+    else if (k === 'close') { GX.prev = null; ui.render(); }
     else if (k === 'prot') { GX.prot = ((GX.prot || 0) + 1) % 4; ui.render(); }
     else if (k === 'auto') { const g = gemBy(b.dataset.u); if (g) autoPut(g, GX.prot || 0); }
     else if (k === 'rot' && sel && sel.x >= 0) rotatePlaced(sel);
@@ -402,6 +422,21 @@
 #panel .gx-dock.gx-has-card > :not(.gx-card),#panel .gx-dock.gx-has-card > #tray{display:none!important}
 #panel .ro-gem-tools [data-act="rot"],#panel .ro-gem-tools [data-act="unplace"],#panel .ro-gem-tools [data-act="desel"]{display:none!important}
 #sgrid .gx-armed{filter:brightness(1.18) drop-shadow(0 4px 6px rgba(20,40,70,.35));transform:scale(1.04);transition:transform .08s}
+.gx-fullbar{display:flex;align-items:center;gap:8px;margin:0 0 8px}
+.gx-fullbar.gx-open{justify-content:flex-end}
+.gx-fullbar .gx-sp{flex:1}
+.gx-fullbar .btn{min-height:40px;padding:0 14px;font-size:14px}
+body.gx-full #panel{position:fixed!important;inset:0!important;z-index:2147482000!important;margin:0!important;padding:10px 12px 0!important;
+  background:var(--paper,#f4efe4)!important;max-height:none!important}
+body.gx-full #panel .ro-skills > :not(.gx-fullbar):not(.gridWrap):not(.gx-dock){display:none!important}
+body.gx-full #panel .gridWrap{width:min(100%,calc(100dvh - 300px),560px)!important;max-width:none!important;margin:0 auto!important;flex:none}
+body.gx-full #panel .sgrid{width:100%!important;max-width:none!important}
+body.gx-full #panel{display:flex!important;flex-direction:column}
+body.gx-full #stageWrap,body.gx-full #v125wx{visibility:hidden!important}
+body.gx-full #panel .ro-skills{flex:1 0 auto;display:flex;flex-direction:column}
+body.gx-full #panel .gx-dock{margin-top:auto!important}
+body.gx-full #panel .sgrid .gname{font-size:14px;line-height:16px}
+body.gx-full #panel .gx-dock{margin-top:10px}
 .gx-card{font-size:13px;line-height:1.45}
 .gx-card .gx-head{display:flex;gap:10px;align-items:center;margin-bottom:2px}
 .gx-card .gx-head img{width:34px;height:34px;image-rendering:pixelated;flex:none}
