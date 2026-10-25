@@ -52,6 +52,10 @@
   <p class="hint">遊戲卡在載入畫面時先用這個。會解除 Service Worker、清掉所有離線快取；
      <b>角色進度不會動</b>。清完會自動回遊戲（第一次會重新下載約 6 MB）。</p>
 
+  <button id="b3">匯出存檔（下載備份檔）</button>
+  <p class="hint">遊戲進不去時也能把存檔備份下來。下載不了的話，下面會出現一大段文字，全選複製傳給我也可以。</p>
+  <textarea id="dump" readonly style="display:none;width:100%;height:120px;font:11px monospace;margin-top:6px"></textarea>
+
   <hr>
 
   <button class="danger" id="b2">全部清除（存檔也刪掉，從頭開始）</button>
@@ -179,6 +183,20 @@
     log('  已刪除 ' + n + ' 項');
     log('完成，2 秒後回遊戲（會是全新的開始）…');
     setTimeout(go, 1200);
+  });
+
+  $('b3').addEventListener('click', function () {
+    var out = { exportedAt: new Date().toISOString(), ua: navigator.userAgent, data: {} };
+    lsKeys().forEach(function (k) { try { out.data[k] = localStorage.getItem(k); } catch (e) {} });
+    var txt = JSON.stringify(out);
+    try {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([txt], { type: 'application/json' }));
+      a.download = 'xianjingro-save-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '') + '.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      log('已下載備份檔（' + Math.round(txt.length / 1024) + ' KB）');
+    } catch (e) { log('下載失敗：' + e.message); }
+    var d = $('dump'); d.style.display = 'block'; d.value = txt;
   });
 
   $('back').addEventListener('click', function (e) { e.preventDefault(); go(); });
