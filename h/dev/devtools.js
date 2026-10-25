@@ -289,16 +289,29 @@
         for (const it of S.bag || []) if (it && it.uq) bagUq.add(it.uq);
         const uqRows = [];
         for (const [k, d] of Object.entries(T.uniq())) {
-          if (!d || d.my) continue;
+          if (!d) continue;
           const nm = d.n || k;
           if (!hit(nm) && !hit(k)) continue;
-          uqRows.push(irow('edit:uq:' + k, nm, `獨特 ・ ${slotName(d.slot)}${bagUq.has(k) ? ' ・ 背包已有' : ''}`, '#ff5a82'));
+          uqRows.push(irow('edit:uq:' + k, nm, `${d.my ? '主宰' : '獨特'} ・ ${slotName(d.slot)}${bagUq.has(k) ? ' ・ 背包已有' : ''}`, d.my ? '#ff3030' : '#ff5a82'));
         }
         rows.push(`<div class="note" style="margin:2px 0 6px">點一件裝備 → 可改<b>稀有度／品質／精煉／卡片槽／屬性</b>，部位固定不變。</div>`);
         rows.push(`<div class="note" style="margin:10px 0 4px;font-weight:400;color:#8a3e14">✦ 獨特裝備（${uqRows.length}）</div>`);
         rows.push.apply(rows, uqRows);
         rows.push(`<div class="note" style="margin:14px 0 0;font-weight:400;color:#8a3e14">✦ 一般裝備（全部具名底座）</div>`);
+        const CL = T.classOf();
         for (const sl of T.slots()) {
+          if (sl === 'weapon') {
+            // 武器依職業，所以六個職業的都要列出來（作者用 BASES.weapon[職業]）
+            for (const cid of Object.keys(CL)) {
+              const B = (typeof BASES !== 'undefined' && BASES.weapon && BASES.weapon[cid]) || [];
+              const inGrp = B.map((nm, bi) => ({ nm, bi })).filter((x) => hit(x.nm));
+              if (!inGrp.length) continue;
+              rows.push(`<div class="note" style="margin:8px 0 4px;font-weight:400;color:#5a6b7c">・武器（${CL[cid].n}）${cid === S.cls ? ' ← 本職' : ''}</div>`);
+              for (const x of inGrp)
+                rows.push(irow('edit:base:weapon:' + x.bi + ':' + cid, x.nm, `${CL[cid].n} ・ 武器 ・ 等級 ${S.lvl}`, cid === S.cls ? '#6fb6ff' : '#9aa8b6'));
+            }
+            continue;
+          }
           const list = baseNames(sl);
           const inGrp = list.map((nm, bi) => ({ nm, bi })).filter((x) => hit(x.nm));
           if (!inGrp.length) continue;
@@ -313,17 +326,24 @@
           rows.push(irow('mat:' + k, d.n, `目前 ${S.mat[k] | 0}`, cols[d.f]));
         }
       } else if (IST.tab === 'gem') {
-        const cls = (S.mcl || S.cls) && T.classOf()[S.cls];
-        const list = (cls && cls.gems) || Object.keys(T.skills());
+        const CLS = T.classOf();
+        const SK = T.skills();
+        const ownGems = (CLS[S.cls] && CLS[S.cls].gems) || [];
+        const ownSet = new Set(ownGems);
         const cnt = {};
         for (const g of S.gems || []) if (g && g.id) cnt[g.id] = (cnt[g.id] || 0) + 1;
+        rows.push(`<div class="note" style="margin:2px 0 6px">全部技能寶石共 <b>${Object.keys(SK).length}</b> 種（本職優先）</div>`);
         rows.push(irow('gem:__mut', '變異寶石（隨機形狀）', '每次生成 1 顆', '#c9a0ff'));
-        for (const id of list) {
-          const sk = T.skills()[id];
-          if (!sk) continue;
-          if (!hit(sk.n) && !hit(id)) continue;
-          rows.push(irow('gem:' + id, sk.n,
-            `${sk.act ? '主動' : '輔助'} ・ 冷卻 ${sk.cd || '-'} ・ 身上 ${cnt[id] || 0}`, sk.col));
+        const ids = Object.keys(SK).filter((id) => {
+          const k = SK[id];
+          return k && k.n && (hit(k.n) || hit(id));
+        });
+        ids.sort((a, b) => (ownSet.has(b) ? 1 : 0) - (ownSet.has(a) ? 1 : 0) || String(SK[a].n).localeCompare(String(SK[b].n)));
+        for (const id of ids) {
+          const k = SK[id];
+          const cn = (CLS[k.cls] && CLS[k.cls].n) || k.cls || '';
+          rows.push(irow('gem:' + id, k.n,
+            `${k.act ? '主動' : '輔助'} ・ ${cn}${ownSet.has(id) ? '（本職）' : ''} ・ 身上 ${cnt[id] || 0}`, k.col));
         }
       } else if (IST.tab === 'card') {
         const st = (S.v5 && S.v5.cards) || {};
@@ -404,7 +424,7 @@
 
   // ============ 裝備編輯器（選一件 → 改稀有度／品質／精煉／卡片槽／屬性 → 建立）============
   // 這版（v6.x）裝備的屬性存在 bx=[{k,v}]、品質 q(%)、精煉 ref、卡片槽 cs/cards。
-  const IED = { on: false, kind: '', slot: '', bi: -1, uq: '', name: '', rar: 2, cs: -1, cap: 4, q: 100, ref: 0, bx: [], adding: false, pick: '' };
+  const IED = { on: false, kind: '', slot: '', bi: -1, uq: '', wcls: '', name: '', rar: 2, cs: -1, cap: 4, q: 100, ref: 0, bx: [], adding: false, pick: '' };
   const RAR_LABEL = ['普通', '魔法', '稀有', '傳奇', '神話'];
   const RAR_COLOR = ['#e8e8e8', '#6fb6ff', '#ffd84a', '#ff9a3c', '#3ce0ff'];
 
@@ -439,6 +459,16 @@
       if (IED.rar >= 0) o.rar = IED.rar;
       it = makeItem(ilvl, o);
       if (IED.bi >= 0) { try { setBase(it, IED.bi); } catch (e) {} }
+      // 跨職業武器：基底名稱與傷害要用那個職業的 WEAPON 表
+      if (IED.slot === 'weapon' && IED.wcls && IED.wcls !== S.cls) {
+        const nm = ((typeof BASES !== 'undefined' && BASES.weapon && BASES.weapon[IED.wcls]) || [])[IED.bi];
+        if (nm) it.base = nm;
+        const W = (typeof WEAPON !== 'undefined' && WEAPON[IED.wcls]) || null;
+        if (W && it.wd) {
+          const base = W.a + W.k * it.ilvl;
+          it.wd = [Math.max(1, Math.round(0.75 * base)), Math.max(2, Math.round(1.25 * base)), W.aps, W.c];
+        }
+      }
     }
     if (!it) return null;
     if (IED.q > 0) it.q = Math.round(IED.q);
@@ -466,7 +496,7 @@
     const rows = [];
     const slot = IED.slot;
     rows.push(`<div class="note" style="margin:0 0 10px"><b style="font-size:15px;color:#355978">${E(IED.name)}</b>　` +
-      `<span style="color:#7b8a98">${slotName(slot)} ・ 部位固定不可改</span></div>`);
+      `<span style="color:#7b8a98">${slotName(slot)}${IED.wcls ? '（' + ((T.classOf()[IED.wcls] || {}).n || IED.wcls) + '）' : ''} ・ 部位固定不可改</span></div>`);
 
     if (IED.kind === 'uq') {
       rows.push(`<div class="note" style="margin:0 0 8px;color:#ff5a82">獨特裝備（稀有度由裝備本身決定）</div>`);
@@ -522,13 +552,17 @@
     const p1 = k.indexOf(':');
     const p2 = k.indexOf(':', p1 + 1);
     const kind = k.slice(0, p1);
-    IED.adding = false; IED.pick = ''; IED.bx = []; IED.cs = -1; IED.rar = 2; IED.cap = 4; IED.q = 100; IED.ref = 0;
+    IED.adding = false; IED.pick = ''; IED.bx = []; IED.cs = -1; IED.rar = 2; IED.cap = 4; IED.q = 100; IED.ref = 0; IED.wcls = '';
     try {
       if (kind === 'base') {
-        const slot = k.slice(p1 + 1, p2), bi = +k.slice(p2 + 1);
-        const nm = baseNames(slot)[bi];
+        const rest = k.slice(p1 + 1).split(':');
+        const slot = rest[0], bi = +rest[1], wcls = rest[2] || '';
+        const B = (slot === 'weapon' && wcls)
+          ? ((typeof BASES !== 'undefined' && BASES.weapon && BASES.weapon[wcls]) || [])
+          : baseNames(slot);
+        const nm = B[bi];
         if (!nm) return warn('找不到這件裝備');
-        IED.kind = 'base'; IED.slot = slot; IED.bi = bi; IED.name = nm; IED.rar = 2;
+        IED.kind = 'base'; IED.slot = slot; IED.bi = bi; IED.name = nm; IED.rar = 2; IED.wcls = wcls;
         const probe = makeItem(Math.max(1, S.lvl | 0), { slot, rar: 2 });
         setBase(probe, bi);
         IED.cap = slotCapOf(probe);
