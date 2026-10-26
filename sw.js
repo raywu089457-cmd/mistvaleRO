@@ -5,7 +5,7 @@
  *
  * 版本規則：改版時把 CACHE 的版號 +1（update.mjs 會自動做）。
  */
-const CACHE = 'xianjingro-v12-scan269';
+const CACHE = 'xianjingro-v13-playtest293';
 const RUNTIME = CACHE + '-rt';
 const HTML_TIMEOUT = 8000;
 

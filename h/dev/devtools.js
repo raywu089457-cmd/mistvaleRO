@@ -307,6 +307,14 @@
               for (const x of inGrp)
                 rows.push(irow('edit:base:weapon:' + g.key + ':' + x.bi, x.nm, `${g.label} ・ 等級 ${S.lvl}`, g.cls === S.cls ? '#6fb6ff' : '#9aa8b6'));
             }
+            // 未轉職（還沒有轉職分支時遊戲用的是這一組，數值表不同）
+            for (const g of plainWeaponGroups()) {
+              const inG = g.names.map((nm, bi) => ({ nm, bi })).filter((x) => hit(x.nm));
+              if (!inG.length) continue;
+              rows.push(`<div class="note" style="margin:8px 0 4px;font-weight:400;color:#7a6a5c">・武器・${g.label}（未轉職）${g.cls === S.cls ? ' ← 本職' : ''}</div>`);
+              for (const x of inG)
+                rows.push(irow('edit:base:weapon:plain:' + g.cls + ':' + x.bi, x.nm, `${g.label} ・ 未轉職${g.dup(x.nm) ? ' ・ 同名但數值表不同' : ''}`, '#c9b48a'));
+            }
             continue;
           }
           const list = baseNames(sl);
@@ -447,6 +455,53 @@
     } catch (e) { return []; }
   }
   // 武器分組：ro_sword_0 … ro_merchant_3，另有 ro_bow_4/5（舞孃線／流浪者線）
+  // 未轉職武器：BASES.weapon[職業] 各 4 把（還沒有轉職分支時遊戲就是用這一組）
+  function plainWeaponGroups() {
+    const out = [];
+    try {
+      const B = typeof BASES !== 'undefined' ? BASES : null;
+      const CL = T.classOf();
+      if (!B || !B.weapon) return out;
+      const RWn = new Set();
+      try { for (const v of Object.values(RO_WB)) (v[0] || []).forEach((n) => RWn.add(n)); } catch (e) {}
+      for (const cls of Object.keys(B.weapon)) {
+        const names = B.weapon[cls] || [];
+        if (!names.length) continue;
+        out.push({ cls, names, label: (CL[cls] && CL[cls].n) || cls, dup: (n) => RWn.has(n) });
+      }
+    } catch (e) {}
+    return out;
+  }
+  // 未轉職武器：沒有 roWb，數值用 V5_WEX[職業]（轉職前那一組）
+  function applyPlainWeapon(it, cls, bi, L2) {
+    try {
+      const names = ((typeof BASES !== 'undefined' && BASES.weapon) || {})[cls] || [];
+      const nm = names[bi | 0];
+      if (!it || !nm) return it;
+      it.bi = bi | 0; it.base = nm;
+      try { delete it.roWb; } catch (e) { it.roWb = undefined; }
+      const W = (typeof WEAPON !== 'undefined' && (WEAPON[cls] || WEAPON[S.cls])) || null;
+      if (!W) return it;
+      const wex = (typeof V5_WEX !== 'undefined' && V5_WEX[cls]) || null;
+      const h2 = wex ? wex[0] : 0;
+      const q = (it.q || 100) / 100;
+      const lv = L2 || it.ilvl || 1;
+      const base = W.a + W.k * lv;
+      const m = (typeof V5_WK === 'function' ? V5_WK(lv) : 1)
+        * (h2 ? (typeof V5_H2 === 'number' ? V5_H2 : 1.25) : 1) * q;
+      it.h2 = h2 ? 1 : 0;
+      it.wd = [
+        Math.max(1, Math.round(0.75 * base * m)),
+        Math.max(2, Math.round(1.25 * base * m)),
+        +((W.aps) * (typeof V5_WAPS === 'number' ? V5_WAPS : 1.1)).toFixed(2),
+        W.c,
+      ];
+      it.v5aps = 1;
+      if (it.name) it.name = nm;
+    } catch (e) {}
+    return it;
+  }
+
   // 職業專屬副手（V1219_OH）：弓箭手＝箭筒、盜賊＝左手短劍、劍士＝騎士徽章、商人＝工匠護手
   function ohGroups() {
     const out = [];
@@ -560,6 +615,9 @@
         const tp = ohTpl(ocls, IED.bi);
         it = tp ? makeTplItem('shield', tp, ilvl, rr) : null;
         if (it) { it.oh = ocls; if (it.base) it.name = it.base; }
+      } else if (IED.slot === 'weapon' && IED.wgroup && IED.wgroup.indexOf('plain:') === 0) {
+        it = makeItem(ilvl, o);
+        applyPlainWeapon(it, IED.wgroup.slice(6), IED.bi, ilvl);
       } else if (IED.slot === 'weapon' && IED.wgroup) {
         it = makeItem(ilvl, o);
         applyWeaponGroup(it, IED.wgroup, IED.bi, ilvl);
@@ -572,7 +630,10 @@
     }
     if (!it) return null;
     if (IED.q > 0) it.q = Math.round(IED.q);
-    if (IED.slot === 'weapon' && IED.wgroup && IED.wgroup.indexOf('oh:') !== 0) applyWeaponGroup(it, IED.wgroup, IED.bi, ilvl);  // 品質會影響傷害，所以重算一次
+    if (IED.slot === 'weapon' && IED.wgroup && IED.wgroup.indexOf('oh:') !== 0) {   // 品質會影響傷害，所以重算一次
+      if (IED.wgroup.indexOf('plain:') === 0) applyPlainWeapon(it, IED.wgroup.slice(6), IED.bi, ilvl);
+      else applyWeaponGroup(it, IED.wgroup, IED.bi, ilvl);
+    }
     it.ref = Math.max(0, IED.ref | 0);
     if (IED.cs >= 0) {
       const n = Math.max(0, Math.min(IED.cap, IED.cs));
@@ -592,6 +653,11 @@
       const cls = g.slice(3);
       const o = ohGroups().find((x) => x.cls === cls);
       return o ? '（' + o.label + ' ・ ' + o.kind + '）' : '';
+    }
+    if (g.indexOf('plain:') === 0) {
+      const cls = g.slice(6);
+      const o = plainWeaponGroups().find((x) => x.cls === cls);
+      return o ? '（' + o.label + ' ・ 未轉職）' : '';
     }
     const w = weaponGroups().find((x) => x.key === g);
     return w ? '（' + w.label + '）' : '';
@@ -673,10 +739,17 @@
         let bi = 0, nm = '';
         if (slot === 'weapon') {
           const group = rest[1] || '';
-          bi = +(rest[2] || 0);
-          const RW = (typeof RO_WB !== 'undefined' && RO_WB[group]) || null;
-          nm = RW ? RW[0][Math.min(3, bi)] : '';
-          IED.wgroup = group;
+          if (group === 'plain') {
+            const pcls = rest[2] || S.cls;
+            bi = +(rest[3] || 0);
+            nm = (((typeof BASES !== 'undefined' && BASES.weapon) || {})[pcls] || [])[bi] || '';
+            IED.wgroup = 'plain:' + pcls;
+          } else {
+            bi = +(rest[2] || 0);
+            const RW = (typeof RO_WB !== 'undefined' && RO_WB[group]) || null;
+            nm = RW ? RW[0][Math.min(3, bi)] : '';
+            IED.wgroup = group;
+          }
         } else if (rest[1] === 'oh') {
           const ocls = rest[2] || '';
           bi = +(rest[3] || 0);
@@ -696,6 +769,9 @@
           const tp = ohTpl(IED.wgroup.slice(3), bi);
           probe = tp ? makeTplItem('shield', tp, LV0, 2) : null;
           if (probe) probe.oh = IED.wgroup.slice(3);
+        } else if (slot === 'weapon' && IED.wgroup && IED.wgroup.indexOf('plain:') === 0) {
+          probe = makeItem(LV0, { slot, rar: 2 });
+          applyPlainWeapon(probe, IED.wgroup.slice(6), bi, LV0);
         } else if (slot === 'weapon' && IED.wgroup) {
           probe = makeItem(LV0, { slot, rar: 2 });
           applyWeaponGroup(probe, IED.wgroup, bi, LV0);
