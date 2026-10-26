@@ -439,7 +439,7 @@
 
   // ============ 裝備編輯器（選一件 → 改稀有度／品質／精煉／卡片槽／屬性 → 建立）============
   // 這版（v6.x）裝備的屬性存在 bx=[{k,v}]、品質 q(%)、精煉 ref、卡片槽 cs/cards。
-  const IED = { on: false, kind: '', slot: '', bi: -1, uq: '', wcls: '', name: '', rar: 2, cs: -1, cap: 4, q: 100, ref: 0, bx: [], adding: false, pick: '' };
+  const IED = { on: false, kind: '', slot: '', bi: -1, uq: '', wcls: '', wgroup: '', name: '', rar: 2, cs: -1, cap: 4, q: 100, ref: 0, bx: [], pool: [], adding: false, more: false, pick: '' };
   const RAR_LABEL = ['普通', '魔法', '稀有', '傳奇', '神話'];
   const RAR_COLOR = ['#e8e8e8', '#6fb6ff', '#ffd84a', '#ff9a3c', '#3ce0ff'];
 
@@ -552,6 +552,12 @@
   const slotCapOf = (it) => { try { return Math.max(0, Math.min(7, v5SlotCap(it) | 0)); } catch (e) { return 4; } };
   const bxName = (k, v) => { try { return String(v5Line(k, v)); } catch (e) { return k + ' ' + v; } };
   const bxKeys = () => { try { return Object.keys(V5_REF || {}); } catch (e) { return []; } };
+  const bxSub = (k) => {
+    try {
+      const full = String(v5Line(k, 10)), lab = bxLabel(k);
+      return full.indexOf(lab) === 0 ? full.slice(lab.length).trim() : full;
+    } catch (e) { return ''; }
+  };
   const bxLabel = (k) => {
     try {
       const t = String(v5Line(k, 10));
@@ -602,32 +608,61 @@
     } catch (e) { return null; }
   }
 
-  function buildEquip() {
+  // 只做「這件裝備本身」（用遊戲的骰子，不套使用者的設定）。用來取樣屬性池、以及重骰。
+  function freshBase() {
     const ilvl = Math.max(1, S.lvl | 0);
-    let it;
-    if (IED.kind === 'uq') it = makeItem(120, { uqk: IED.uq });
-    else {
-      const o = { slot: IED.slot };
-      if (IED.rar >= 0) o.rar = IED.rar;
-      const rr = (IED.rar >= 0 ? IED.rar : 2);
-      if (IED.wgroup && IED.wgroup.indexOf('oh:') === 0) {
-        const ocls = IED.wgroup.slice(3);
-        const tp = ohTpl(ocls, IED.bi);
-        it = tp ? makeTplItem('shield', tp, ilvl, rr) : null;
-        if (it) { it.oh = ocls; if (it.base) it.name = it.base; }
-      } else if (IED.slot === 'weapon' && IED.wgroup && IED.wgroup.indexOf('plain:') === 0) {
-        it = makeItem(ilvl, o);
-        applyPlainWeapon(it, IED.wgroup.slice(6), IED.bi, ilvl);
-      } else if (IED.slot === 'weapon' && IED.wgroup) {
-        it = makeItem(ilvl, o);
-        applyWeaponGroup(it, IED.wgroup, IED.bi, ilvl);
-      } else if (IED.bi >= 0) {
-        const VB = (typeof V5_BASES !== 'undefined' && V5_BASES[IED.slot]) || null;
-        it = (VB && VB[IED.bi]) ? makeTplItem(IED.slot, [VB[IED.bi], IED.bi], ilvl, rr) : makeItem(ilvl, o);
-      } else {
-        it = makeItem(ilvl, o);
+    const rr = (IED.rar >= 0 ? IED.rar : 2);
+    const g = IED.wgroup || '';
+    if (IED.kind === 'uq') return makeItem(120, { uqk: IED.uq });
+    if (IED.slot === 'weapon') {
+      if (g.indexOf('plain:') === 0) {
+        const it = makeItem(ilvl, { slot: 'weapon', rar: rr });
+        return applyPlainWeapon(it, g.slice(6), IED.bi, ilvl);
+      }
+      if (g) {
+        const it = makeItem(ilvl, { slot: 'weapon', rar: rr });
+        return applyWeaponGroup(it, g, IED.bi, ilvl);
       }
     }
+    if (g.indexOf('oh:') === 0) {
+      const tp = ohTpl(g.slice(3), IED.bi);
+      const it = tp ? makeTplItem('shield', tp, ilvl, rr) : null;
+      if (it) { it.oh = g.slice(3); if (it.base) it.name = it.base; }
+      return it;
+    }
+    const VB = (typeof V5_BASES !== 'undefined' && V5_BASES[IED.slot]) || null;
+    if (VB && VB[IED.bi]) return makeTplItem(IED.slot, [VB[IED.bi], IED.bi], ilvl, rr);
+    return makeItem(ilvl, { slot: IED.slot, rar: rr });
+  }
+
+  // 這件裝備「自己會骰出來」的屬性：實際骰 120 次，收集出現過的 bx 鍵
+  function rollPool(n) {
+    const set = [];
+    const seen = {};
+    for (let i = 0; i < (n || 120); i++) {
+      let it = null;
+      try { it = freshBase(); } catch (e) { continue; }
+      for (const b of (it && it.bx) || []) {
+        if (!b || !b.k || seen[b.k]) continue;
+        seen[b.k] = 1;
+        set.push(b.k);
+      }
+    }
+    return set;
+  }
+  // 重新骰一次這件裝備原本的屬性（換成遊戲這次骰出的結果）
+  function rerollBx() {
+    const it = freshBase();
+    if (!it) return warn('重骰失敗');
+    IED.bx = (it.bx || []).map((x) => ({ k: x.k, v: x.v }));
+    if (it.q) IED.q = it.q;
+    if (typeof it.ref === 'number') IED.ref = it.ref;
+    IED.pool = rollPool(120);
+  }
+
+  function buildEquip() {
+    const ilvl = Math.max(1, S.lvl | 0);
+    let it = freshBase();
     if (!it) return null;
     if (IED.q > 0) it.q = Math.round(IED.q);
     if (IED.slot === 'weapon' && IED.wgroup && IED.wgroup.indexOf('oh:') !== 0) {   // 品質會影響傷害，所以重算一次
@@ -697,30 +732,50 @@
     rows.push(`</div>`);
 
     if (IED.adding) {
-      rows.push(`<div class="note" style="margin:0 0 4px">選一個屬性加入</div>`);
+      const pool = (IED.pool || []).filter((k) => !IED.bx.some((x) => x.k === k));
+      rows.push(`<div class="row" style="margin:0 0 6px;flex-wrap:nowrap">` +
+        `<button data-di-afadd="0" class="btn" style="flex:none;padding:7px 12px;font-size:13px;${CTLFONT}">← 返回</button>` +
+        `<span class="note" style="flex:1;margin:0;font-size:11.5px;text-align:right">骰 160 次統計這件會出的屬性</span></div>`);
       rows.push(`<input class="txt" id="devAfQ" placeholder="搜尋屬性…" value="${E(IED.pick)}" style="width:100%;margin:0 0 6px;font-size:14px;padding:8px 10px;${CTLFONT}">`);
-      let n = 0;
-      for (const k of bxKeys()) {
-        if (IED.bx.some((x) => x.k === k)) continue;
+      let n1 = 0;
+      rows.push(`<div class="note" style="margin:0 0 4px;font-weight:400;color:#1d6fa5">這件裝備會骰出的屬性（${pool.length}）</div>`);
+      for (const k of pool) {
         const nm = bxLabel(k);
         if (!hit(nm) && !hit(k)) continue;
-        n++;
-        rows.push(irow('afpick:' + k, nm, E(bxName(k, 10)), '#6fb6ff'));
+        n1++;
+        rows.push(irow('afpick:' + k, nm, E(bxSub(k)), '#6fb6ff'));
       }
-      if (!n) rows.push(`<p class="empty-note">沒有符合的屬性。</p>`);
+      if (!n1) rows.push(`<p class="empty-note" style="padding:6px 4px">這件的屬性都加完了，或沒有符合搜尋的。</p>`);
+      const rest = bxKeys().filter((k) => IED.pool.indexOf(k) < 0 && !IED.bx.some((x) => x.k === k));
+      rows.push(`<div class="row" style="margin:10px 0 4px"><button data-di-more="1" class="btn" style="padding:7px 12px;font-size:12.5px;${CTLFONT}">${IED.more ? '▾' : '▸'} 其他屬性（這件平常不會出，${rest.length}）</button></div>`);
+      if (IED.more) {
+        let n2 = 0;
+        for (const k of rest) {
+          const nm = bxLabel(k);
+          if (!hit(nm) && !hit(k)) continue;
+          n2++;
+          rows.push(irow('afpick:' + k, nm, E(bxSub(k)), '#b0a08a'));
+        }
+        if (!n2) rows.push(`<p class="empty-note" style="padding:6px 4px">沒有符合搜尋的。</p>`);
+      }
       return rows.join('');
     }
 
     rows.push(`<div class="note" style="margin:0 0 4px">屬性（可改數值、可刪）</div>`);
     if (!IED.bx.length) rows.push(`<p class="empty-note" style="padding:8px 4px">還沒有屬性，按下面「＋ 新增屬性」。</p>`);
     IED.bx.forEach((x, i) => {
-      rows.push(`<div style="display:flex;gap:6px;align-items:center;padding:5px 8px;margin:0 0 4px;background:#fff;border:1px solid #ccd8e2;border-radius:8px">` +
-        `<span style="flex:1;min-width:0;font-size:13px;${CTLFONT}">${E(bxLabel(x.k))}</span>` +
+      const native = !IED.pool.length || IED.pool.indexOf(x.k) >= 0;
+      rows.push(`<div style="display:flex;gap:6px;align-items:center;padding:5px 8px;margin:0 0 4px;background:${native ? '#fff' : '#fff8ee'};border:1px solid ${native ? '#ccd8e2' : '#e8cfa8'};border-radius:8px">` +
+        `<span style="flex:1;min-width:0;font-size:13px;${CTLFONT}">${E(bxLabel(x.k))}${native ? '' : `<span style="color:#c08a2a;font-size:11px"> 手動</span>`}</span>` +
         `<input class="num" type="number" data-di-bx="${i}" value="${Math.round(x.v)}" style="width:78px;flex:none;font-size:14px;padding:5px 6px;${CTLFONT}">` +
         `<button data-di-bxdel="${i}" aria-label="刪除" style="flex:none;width:34px;height:34px;border-radius:8px;border:1px solid #d8b0b8;background:#fbeef0;color:#a03050;font-size:15px;cursor:pointer">✕</button>` +
         `</div>`);
     });
-    rows.push(`<div class="row" style="margin:6px 0 12px"><button data-di-afadd="1" class="btn" style="padding:9px 14px;font-size:13px;${CTLFONT}">＋ 新增屬性</button></div>`);
+    rows.push(`<div class="row" style="margin:6px 0 12px;gap:6px">` +
+      `<button data-di-afadd="1" class="btn" style="flex:1;padding:9px 10px;font-size:13px;${CTLFONT}">＋ 新增屬性</button>` +
+      `<button data-di-reroll="1" class="btn" style="flex:1;padding:9px 10px;font-size:13px;${CTLFONT}">🎲 重骰屬性</button>` +
+      `<button data-di-bxclear="1" class="btn danger" style="flex:none;padding:9px 10px;font-size:13px;${CTLFONT}">清空</button>` +
+      `</div>`);
     rows.push(`<div class="row" style="margin:0"><button data-di-build="1" class="btn primary" style="flex:1;padding:13px;font-size:15px;${CTLFONT}">放入背包（×${IST.qty}）</button></div>`);
     return rows.join('');
   }
@@ -731,7 +786,7 @@
     const p1 = k.indexOf(':');
     const p2 = k.indexOf(':', p1 + 1);
     const kind = k.slice(0, p1);
-    IED.adding = false; IED.pick = ''; IED.bx = []; IED.cs = -1; IED.rar = 2; IED.cap = 4; IED.q = 100; IED.ref = 0; IED.wcls = ''; IED.wgroup = '';
+    IED.adding = false; IED.pick = ''; IED.bx = []; IED.cs = -1; IED.rar = 2; IED.cap = 4; IED.q = 100; IED.ref = 0; IED.wcls = ''; IED.wgroup = ''; IED.pool = []; IED.more = false;
     try {
       if (kind === 'base') {
         const rest = k.slice(p1 + 1).split(':');
@@ -783,6 +838,7 @@
         IED.cap = slotCapOf(probe);
         IED.q = probe.q || 100; IED.ref = probe.ref || 0;
         IED.bx = (probe.bx || []).map((x) => ({ k: x.k, v: x.v }));
+        IED.pool = rollPool(160);
       } else if (kind === 'uq') {
         const uq = k.slice(p1 + 1);
         const d = T.uniq()[uq];
@@ -792,7 +848,10 @@
         IED.cap = slotCapOf(probe);
         IED.q = probe.q || 100; IED.ref = probe.ref || 0;
         IED.bx = (probe.bx || []).map((x) => ({ k: x.k, v: x.v }));
+        IED.pool = rollPool(160);
       } else return warn('未知的裝備類型');
+      if (!Array.isArray(IED.pool) || !IED.pool.length) IED.pool = rollPool(160);
+      for (const x of IED.bx) if (IED.pool.indexOf(x.k) < 0) IED.pool.push(x.k);
       IED.on = true;
       paintCtl(); paintBody();
       const box = document.getElementById('devItemBody');
@@ -883,7 +942,10 @@
     const cs = b.getAttribute('data-di-cs');
     if (cs !== null) { IED.cs = +cs; paintBody(); return; }
     const afadd = b.getAttribute('data-di-afadd');
-    if (afadd) { IED.adding = true; IED.pick = ''; paintBody(); return; }
+    if (afadd) { IED.adding = afadd === '1'; IED.pick = ''; IED.more = false; paintBody(); return; }
+    if (b.getAttribute('data-di-more')) { IED.more = !IED.more; paintBody(); return; }
+    if (b.getAttribute('data-di-reroll')) { rerollBx(); paintBody(); return; }
+    if (b.getAttribute('data-di-bxclear')) { IED.bx = []; paintBody(); return; }
     const bxdel = b.getAttribute('data-di-bxdel');
     if (bxdel !== null) { IED.bx.splice(+bxdel, 1); paintBody(); return; }
     const pick0 = b.getAttribute('data-di-add');
@@ -999,7 +1061,7 @@
 
     // 按鈕事件（用事件委派，不依賴遊戲的 data-act 路由）
     document.addEventListener('click', (e) => {
-      const di = e.target.closest && e.target.closest('[data-di-add],[data-di-tab],[data-di-qty],[data-di-set],[data-di-sub],[data-di-edit],[data-di-rar],[data-di-cs],[data-di-afadd],[data-di-bxdel],[data-di-build],[data-di-back]');
+      const di = e.target.closest && e.target.closest('[data-di-add],[data-di-tab],[data-di-qty],[data-di-set],[data-di-sub],[data-di-edit],[data-di-rar],[data-di-cs],[data-di-afadd],[data-di-bxdel],[data-di-build],[data-di-back],[data-di-more],[data-di-reroll],[data-di-bxclear]');
       if (di) { e.preventDefault(); e.stopPropagation(); itemClick(di); return; }
       const b = e.target.closest && e.target.closest('[data-dev]');
       if (!b) return;
