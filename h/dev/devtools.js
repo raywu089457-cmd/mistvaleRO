@@ -208,8 +208,8 @@
    * 全部讀遊戲自己的資料表（MATS / AFFIX / UNIQUE / SLATE / CLASS / SLOTS），
    * 所以作者新增道具時這裡會自動出現，不必改程式。 */
   const IST = { tab: 'equip', qty: 1, q: '', slot: '', rar: '' };
-  const QTY_OPTS = [1, 10, 50, 99];
-  const TAB_QTY = { equip: 1, mat: 99, gem: 1, card: 1, res: 99 };
+  const QTY_OPTS = [1, 10, 99, 999, 9999];
+  const TAB_QTY = { equip: 1, mat: 999, gem: 1, card: 1, res: 999 };
   const ITABS = [
     ['equip', '裝備'], ['mat', '材料'], ['gem', '寶石'],
     ['card', '卡片'], ['res', '資源'],
@@ -347,19 +347,43 @@
         const ownSet = new Set(ownGems);
         const cnt = {};
         for (const g of S.gems || []) if (g && g.id) cnt[g.id] = (cnt[g.id] || 0) + 1;
-        rows.push(`<div class="note" style="margin:2px 0 6px">全部技能寶石共 <b>${Object.keys(SK).length}</b> 種（本職優先）</div>`);
-        rows.push(irow('gem:__mut', '變異寶石（隨機形狀）', '每次生成 1 顆', '#c9a0ff'));
-        const ids = Object.keys(SK).filter((id) => {
+        rows.push(`<div class="note" style="margin:2px 0 6px">全部技能寶石共 <b>${Object.keys(SK).length}</b> 種，依職業分類</div>`);
+        rows.push(irow('gem:__mut', '變異寶石（隨機形狀）', '不分職業 ・ 每次生成 1 顆', '#c9a0ff'));
+        // 依職業分組：本職排最前面，其餘照 CLASS 的順序，沒有職業的放最後
+        const order = [];
+        if (CLS[S.cls]) order.push(S.cls);
+        for (const c of Object.keys(CLS)) if (c !== S.cls) order.push(c);
+        const byCls = {}, noCls = [];
+        for (const id of Object.keys(SK)) {
           const k = SK[id];
-          return k && k.n && (hit(k.n) || hit(id));
-        });
-        ids.sort((a, b) => (ownSet.has(b) ? 1 : 0) - (ownSet.has(a) ? 1 : 0) || String(SK[a].n).localeCompare(String(SK[b].n)));
-        for (const id of ids) {
-          const k = SK[id];
-          const cn = (CLS[k.cls] && CLS[k.cls].n) || k.cls || '';
-          rows.push(irow('gem:' + id, k.n,
-            `${k.act ? '主動' : '輔助'} ・ ${cn}${ownSet.has(id) ? '（本職）' : ''} ・ 身上 ${cnt[id] || 0}`, k.col));
+          if (!k || !k.n) continue;
+          if (!hit(k.n) && !hit(id)) continue;
+          (k.cls && CLS[k.cls] ? (byCls[k.cls] = byCls[k.cls] || []).push(id) : noCls.push(id));
         }
+        const sortIn = (a, b) => (SK[b].act ? 1 : 0) - (SK[a].act ? 1 : 0) || String(SK[a].n).localeCompare(String(SK[b].n));
+        let shownCls = 0;
+        for (const c of order) {
+          const list = (byCls[c] || []).sort(sortIn);
+          if (!list.length) continue;
+          shownCls++;
+          const actN = list.filter((id) => SK[id].act).length;
+          rows.push(`<div class="note" style="margin:12px 0 4px;font-weight:400;color:#8a3e14">✦ ${E(CLS[c].n)}${c === S.cls ? ' ← 本職' : ''}` +
+            `（${list.length} 顆：主動 ${actN}・輔助 ${list.length - actN}）</div>`);
+          for (const id of list) {
+            const k = SK[id];
+            rows.push(irow('gem:' + id, k.n,
+              `${k.act ? '主動' : '輔助'}${k.cd ? ' ・ 冷卻 ' + k.cd + ' 秒' : ''} ・ 身上 ${cnt[id] || 0}`, k.col));
+          }
+        }
+        if (noCls.length) {
+          shownCls++;
+          rows.push(`<div class="note" style="margin:12px 0 4px;font-weight:400;color:#8a3e14">✦ 不分職業（${noCls.length}）</div>`);
+          for (const id of noCls.sort(sortIn)) {
+            const k = SK[id];
+            rows.push(irow('gem:' + id, k.n, `${k.act ? '主動' : '輔助'} ・ 身上 ${cnt[id] || 0}`, k.col));
+          }
+        }
+        if (!shownCls) rows.push(`<p class="empty-note">沒有符合「${E(IST.q)}」的技能寶石。</p>`);
       } else if (IST.tab === 'card') {
         const st = (S.v5 && S.v5.cards) || {};
         for (const c of Object.values(T.arts())) {
