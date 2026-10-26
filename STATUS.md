@@ -635,3 +635,41 @@ Service Worker 版號 `v14-attrpool` → `v15-foldqty`。
 - 展開 159 ↔ 收起 30、重載後保持、`#toasts` 收起時 fixed，都跟上一版一樣
 
 Service Worker 版號 `v15-foldqty` → `v16-foldleft`。
+
+## 寶石列左右滑動修順（2026-10-25）
+
+使用者回饋「技能方塊左右滑動不順暢」。
+
+### 原因（兩個疊在一起）
+
+1. **`touch-action:none` 把瀏覽器原生的橫向捲動完全關掉**了 —— `#tray` 和裡面的 `.gem` 都設了
+   `touch-action:none`，所以滑動只能靠 JS 一行 `tr.scrollLeft = p.sl - dx` 1:1 手動捲，
+   沒有慣性、手指一離開就停，而且起步前 5px 是死區。
+2. **方向判斷太嚴**：`Math.abs(dx) > Math.abs(dy) * 1.2` —— 只要斜一點（很常見）就被判成
+   「拖曳放寶石」而不是捲動，於是滑不動還順手把寶石抓起來。
+
+### 改法
+
+| 項目 | 之前 | 現在 |
+|---|---|---|
+| `#tray` 的 `touch-action` | `none` | **`pan-x`**（橫向交還瀏覽器：原生捲動＋慣性） |
+| `#tray .gem` 的 `touch-action` | `none !important` | **`pan-x !important`** |
+| 方向判斷 | `|dx| > |dy| × 1.2` | **`|dx| >= |dy|`** |
+| iOS 慣性 | 無 | 加 `-webkit-overflow-scrolling:touch` |
+| `pointercancel` | 只清 `GX.press` | 清狀態 ＋ `dragStop(false)` ＋ 記 `eatClick`（瀏覽器接手捲動時不會留下卡住的拖曳） |
+
+`pan-x` 的意思就是「橫向給瀏覽器、縱向留給 JS」，所以**往上拖放寶石完全不受影響**。
+
+### 驗證（iPhone 13 模擬＋CDP 原生觸控手勢）
+
+| 檢查 | 結果 |
+|---|---|
+| 19 顆寶石（內容 1556px / 視窗 365px） | `touch-action` 讀到 `pan-x` |
+| 原生觸控往左滑 | `scrollLeft` 0 → **235** ✅ |
+| 往右滑回 | 235 → **20** ✅ |
+| 斜著滑（dx 大、dy 小） | 20 → **215** ✅ |
+| 垂直拖曳（往上拖到格子） | 拖曳中 `GEMUX.dragU = 1`、放開後格子出現 1 顆（`#sgrid .gov` = 1）✅ |
+| 垂直拖曳時橫向有沒有誤捲 | `scrollLeft` 全程 0 ✅ |
+| JS 錯誤 | 0 |
+
+Service Worker 版號 `v16-foldleft` → `v17-trayscroll`。

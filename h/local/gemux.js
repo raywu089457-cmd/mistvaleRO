@@ -268,7 +268,7 @@
     const dx = e.clientX - p.x, dy = e.clientY - p.y;
     if (!p.mode) {
       if (Math.hypot(dx, dy) < 5) return;
-      p.mode = Math.abs(dx) > Math.abs(dy) * 1.2 ? 'scroll' : 'drag';
+      p.mode = Math.abs(dx) >= Math.abs(dy) ? 'scroll' : 'drag';
       if (p.mode === 'drag') { GX.dragRot = p.u === GX.prev ? GX.prot || 0 : 0; GX.dragU = p.u; return; }
     }
     e.stopImmediatePropagation();
@@ -304,7 +304,11 @@
     GX.eatClick = performance.now();
     ui.render();
   }, true);
-  window.addEventListener('pointercancel', () => { GX.press = null; }, true);
+  window.addEventListener('pointercancel', () => {
+    const p = GX.press;
+    GX.press = null;
+    if (p) { clearTimeout(p.timer); call(() => dragStop(false)); GX.eatClick = performance.now(); }
+  }, true);
   window.addEventListener('click', (e) => {
     if (performance.now() - GX.eatClick < 600 && e.target.closest && e.target.closest('#tray [data-act="gem"], #sgrid button')) { e.stopImmediatePropagation(); e.preventDefault(); GX.eatClick = 0; return; }
     // 沒經過 pointer 事件的點擊（鍵盤 Enter／部分瀏覽器只送 click）：托盤寶石一樣是「看說明」，不要直接放進去
@@ -428,8 +432,9 @@
 #panel .gx-dock > .seg{margin:0 0 6px!important}
 #panel .gx-dock > .seg button{min-height:30px!important;padding:2px 8px!important}
 #panel .gx-dock #tray{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;overflow-x:auto!important;overflow-y:hidden!important;
-  gap:6px;padding:2px 2px 6px;margin:0!important;touch-action:none;overscroll-behavior-x:contain;scrollbar-width:thin;max-height:none!important}
-#panel .gx-dock #tray .gem{touch-action:none!important}
+  gap:6px;padding:2px 2px 6px;margin:0!important;touch-action:pan-x;overscroll-behavior-x:contain;
+  scrollbar-width:thin;max-height:none!important;-webkit-overflow-scrolling:touch}
+#panel .gx-dock #tray .gem{touch-action:pan-x!important}
 #panel .gx-dock #tray > .gem,#panel .gx-dock #tray .gvar > .gem{flex:0 0 auto!important;width:76px!important;min-width:0!important;max-width:none!important;
   flex-direction:column!important;align-items:center!important;justify-content:flex-start!important;text-align:center;padding:5px 4px 4px!important;gap:1px!important;
   min-height:0!important;font-size:12px!important;line-height:1.3!important}
