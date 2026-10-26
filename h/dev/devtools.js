@@ -311,9 +311,19 @@
           }
           const list = baseNames(sl);
           const inGrp = list.map((nm, bi) => ({ nm, bi })).filter((x) => hit(x.nm));
-          if (!inGrp.length) continue;
-          rows.push(`<div class="note" style="margin:8px 0 4px;font-weight:400;color:#5a6b7c">・${slotName(sl)}</div>`);
-          for (const x of inGrp) rows.push(irow('edit:base:' + sl + ':' + x.bi, x.nm, `${slotName(sl)} ・ 等級 ${S.lvl}`, '#6fb6ff'));
+          if (inGrp.length) {
+            rows.push(`<div class="note" style="margin:8px 0 4px;font-weight:400;color:#5a6b7c">・${slotName(sl)}</div>`);
+            for (const x of inGrp) rows.push(irow('edit:base:' + sl + ':' + x.bi, x.nm, `${slotName(sl)} ・ 等級 ${S.lvl}`, '#6fb6ff'));
+          }
+          if (sl === 'shield') {
+            for (const g of ohGroups()) {
+              const inG = g.tiers.map((t, ti) => ({ nm: t[0], ti })).filter((x) => hit(x.nm));
+              if (!inG.length) continue;
+              rows.push(`<div class="note" style="margin:8px 0 4px;font-weight:400;color:#5a6b7c">・副手・${g.label}（${g.kind}）${g.cls === S.cls ? ' ← 本職' : ''}</div>`);
+              for (const x of inG)
+                rows.push(irow('edit:base:shield:oh:' + g.cls + ':' + x.ti, x.nm, `${g.kind} ・ ${g.label} ・ 等級需求 ${g.tiers[x.ti][1]}`, g.cls === S.cls ? '#7dffc8' : '#9aa8b6'));
+            }
+          }
         }
       } else if (IST.tab === 'mat') {
         const cols = T.matCol();
@@ -437,6 +447,34 @@
     } catch (e) { return []; }
   }
   // 武器分組：ro_sword_0 … ro_merchant_3，另有 ro_bow_4/5（舞孃線／流浪者線）
+  // 職業專屬副手（V1219_OH）：弓箭手＝箭筒、盜賊＝左手短劍、劍士＝騎士徽章、商人＝工匠護手
+  function ohGroups() {
+    const out = [];
+    try {
+      const OH = typeof V1219_OH !== 'undefined' ? V1219_OH : null;
+      const CL = T.classOf();
+      if (!OH) return out;
+      for (const cls of Object.keys(OH)) {
+        const D = OH[cls];
+        if (!D || !D.tiers) continue;
+        out.push({ cls, kind: D.n, tiers: D.tiers, label: (CL[cls] && CL[cls].n) || cls });
+      }
+    } catch (e) {}
+    return out;
+  }
+  // 依指定階級做一個副手樣板（跟 v1219Tpl 一樣的形狀，但階級由使用者選）
+  function ohTpl(cls, ti) {
+    try {
+      const OH = typeof V1219_OH !== 'undefined' ? V1219_OH : null;
+      const D = OH && OH[cls];
+      if (!D) return null;
+      const i = Math.max(0, Math.min(D.tiers.length - 1, ti | 0));
+      const t = D.tiers[i];
+      const order = Object.keys(OH);
+      return [[t[0], D.ico, t[1], 0, '', D.ex], 900 + order.indexOf(cls) * 10 + i];
+    } catch (e) { return null; }
+  }
+
   function weaponGroups() {
     const out = [];
     try {
@@ -497,6 +535,18 @@
     return it;
   }
 
+  // 依指定樣板做一件裝備。
+  // 注意：不能靠 makeItem 的 opt.tpl —— v5 的 makeItem 呼叫 v5Convert(it) 時把參數丟掉了，
+  // 所以 tpl 永遠傳不到，盾牌還會被 v6.4 的「雙手流派自動換副手」蓋掉。
+  // 直接對一個舊格式物件呼叫 v5Convert(raw, {tpl}) 才會真的照我們要的樣板做。
+  function makeTplItem(slot, tpl, ilvl2, rar) {
+    try {
+      const raw = { u: uid(), slot, ilvl: Math.max(1, ilvl2 | 0), rar: (rar == null ? 2 : rar), af: [], nw: 1 };
+      if (typeof v5Convert === 'function') return v5Convert(raw, { tpl });
+      return makeItem(ilvl2, { slot, rar: (rar == null ? 2 : rar) });
+    } catch (e) { return null; }
+  }
+
   function buildEquip() {
     const ilvl = Math.max(1, S.lvl | 0);
     let it;
@@ -504,13 +554,25 @@
     else {
       const o = { slot: IED.slot };
       if (IED.rar >= 0) o.rar = IED.rar;
-      it = makeItem(ilvl, o);
-      if (IED.slot === 'weapon' && IED.wgroup) applyWeaponGroup(it, IED.wgroup, IED.bi, ilvl);
-      else if (IED.bi >= 0) { try { setBase(it, IED.bi); } catch (e) {} }
+      const rr = (IED.rar >= 0 ? IED.rar : 2);
+      if (IED.wgroup && IED.wgroup.indexOf('oh:') === 0) {
+        const ocls = IED.wgroup.slice(3);
+        const tp = ohTpl(ocls, IED.bi);
+        it = tp ? makeTplItem('shield', tp, ilvl, rr) : null;
+        if (it) { it.oh = ocls; if (it.base) it.name = it.base; }
+      } else if (IED.slot === 'weapon' && IED.wgroup) {
+        it = makeItem(ilvl, o);
+        applyWeaponGroup(it, IED.wgroup, IED.bi, ilvl);
+      } else if (IED.bi >= 0) {
+        const VB = (typeof V5_BASES !== 'undefined' && V5_BASES[IED.slot]) || null;
+        it = (VB && VB[IED.bi]) ? makeTplItem(IED.slot, [VB[IED.bi], IED.bi], ilvl, rr) : makeItem(ilvl, o);
+      } else {
+        it = makeItem(ilvl, o);
+      }
     }
     if (!it) return null;
     if (IED.q > 0) it.q = Math.round(IED.q);
-    if (IED.slot === 'weapon' && IED.wgroup) applyWeaponGroup(it, IED.wgroup, IED.bi, ilvl);  // 品質會影響傷害，所以重算一次
+    if (IED.slot === 'weapon' && IED.wgroup && IED.wgroup.indexOf('oh:') !== 0) applyWeaponGroup(it, IED.wgroup, IED.bi, ilvl);  // 品質會影響傷害，所以重算一次
     it.ref = Math.max(0, IED.ref | 0);
     if (IED.cs >= 0) {
       const n = Math.max(0, Math.min(IED.cap, IED.cs));
@@ -521,6 +583,18 @@
     try { if (typeof v5Name === 'function') v5Name(it); } catch (e) {}
     if (!it.name) it.name = it.base;
     return it;
+  }
+
+  function groupLabel() {
+    const g = IED.wgroup || '';
+    if (!g) return '';
+    if (g.indexOf('oh:') === 0) {
+      const cls = g.slice(3);
+      const o = ohGroups().find((x) => x.cls === cls);
+      return o ? '（' + o.label + ' ・ ' + o.kind + '）' : '';
+    }
+    const w = weaponGroups().find((x) => x.key === g);
+    return w ? '（' + w.label + '）' : '';
   }
 
   function numRow(label, attr, val, suffix, hint) {
@@ -535,7 +609,7 @@
     const rows = [];
     const slot = IED.slot;
     rows.push(`<div class="note" style="margin:0 0 10px"><b style="font-size:15px;color:#355978">${E(IED.name)}</b>　` +
-      `<span style="color:#7b8a98">${slotName(slot)}${IED.wgroup ? '（' + (((weaponGroups().find((g) => g.key === IED.wgroup) || {}).label) || IED.wgroup) + '）' : ''} ・ 部位固定不可改</span></div>`);
+      `<span style="color:#7b8a98">${slotName(slot)}${groupLabel()} ・ 部位固定不可改</span></div>`);
 
     if (IED.kind === 'uq') {
       rows.push(`<div class="note" style="margin:0 0 8px;color:#ff5a82">獨特裝備（稀有度由裝備本身決定）</div>`);
@@ -595,21 +669,41 @@
     try {
       if (kind === 'base') {
         const rest = k.slice(p1 + 1).split(':');
-        const slot = rest[0], arg = rest[1] || '', bi = +(rest[2] || 0);
-        let nm = '';
+        const slot = rest[0];
+        let bi = 0, nm = '';
         if (slot === 'weapon') {
-          const RW = (typeof RO_WB !== 'undefined' && RO_WB[arg]) || null;
+          const group = rest[1] || '';
+          bi = +(rest[2] || 0);
+          const RW = (typeof RO_WB !== 'undefined' && RO_WB[group]) || null;
           nm = RW ? RW[0][Math.min(3, bi)] : '';
-          IED.wgroup = arg;
+          IED.wgroup = group;
+        } else if (rest[1] === 'oh') {
+          const ocls = rest[2] || '';
+          bi = +(rest[3] || 0);
+          const OH = (typeof V1219_OH !== 'undefined' && V1219_OH[ocls]) || null;
+          nm = OH ? (OH.tiers[Math.max(0, Math.min(OH.tiers.length - 1, bi))] || [])[0] : '';
+          IED.wgroup = 'oh:' + ocls;
         } else {
-          nm = baseNames(slot)[+arg] || '';
+          bi = +(rest[1] || 0);
+          nm = baseNames(slot)[bi] || '';
           IED.wgroup = '';
         }
         if (!nm) return warn('找不到這件裝備');
         IED.kind = 'base'; IED.slot = slot; IED.bi = bi; IED.name = nm; IED.rar = 2; IED.wcls = '';
-        const probe = makeItem(Math.max(1, S.lvl | 0), { slot, rar: 2 });
-        if (slot === 'weapon' && IED.wgroup) applyWeaponGroup(probe, IED.wgroup, bi, Math.max(1, S.lvl | 0));
-        else setBase(probe, bi);
+        const LV0 = Math.max(1, S.lvl | 0);
+        let probe = null;
+        if (IED.wgroup && IED.wgroup.indexOf('oh:') === 0) {
+          const tp = ohTpl(IED.wgroup.slice(3), bi);
+          probe = tp ? makeTplItem('shield', tp, LV0, 2) : null;
+          if (probe) probe.oh = IED.wgroup.slice(3);
+        } else if (slot === 'weapon' && IED.wgroup) {
+          probe = makeItem(LV0, { slot, rar: 2 });
+          applyWeaponGroup(probe, IED.wgroup, bi, LV0);
+        } else {
+          const VB = (typeof V5_BASES !== 'undefined' && V5_BASES[slot]) || null;
+          probe = (VB && VB[bi]) ? makeTplItem(slot, [VB[bi], bi], LV0, 2) : makeItem(LV0, { slot, rar: 2 });
+        }
+        if (!probe) probe = makeItem(LV0, { slot, rar: 2 });
         IED.cap = slotCapOf(probe);
         IED.q = probe.q || 100; IED.ref = probe.ref || 0;
         IED.bx = (probe.bx || []).map((x) => ({ k: x.k, v: x.v }));
